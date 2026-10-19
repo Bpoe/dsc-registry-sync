@@ -1,0 +1,8 @@
+{
+  "registryUrl": "https://registry.example.internal",
+  "apiKeyFile": "/etc/dsc/dscregsyncd.key",
+  "configDir": "/etc/dsc/config.d",
+  "resultsDir": "/var/lib/dsc/results.d",
+  "requestTimeoutSeconds": 30,
+  "pollFallbackSeconds": 300
+}
