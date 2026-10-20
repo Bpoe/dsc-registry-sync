@@ -31,8 +31,8 @@ DSC Registry (`dscregd`)
 ```text
 /etc/dsc/dscregsyncd.json                       # service configuration
 /etc/dsc/dscregsyncd.key                        # machine API key (root-owned, 0600)
+/etc/dsc/machine.etag                           # exact HTTP ETag including quotes
 /etc/dsc/config.d/dscregsync/
-    machine.etag                                # exact HTTP ETag including quotes
     docker.json                                 # managed DSC template
     docker.parameters.json                      # optional direct parameter mapping
     .docker.revision                            # Registry content revision UUID
@@ -52,20 +52,6 @@ Windows counterparts live under `%ProgramData%\dsc\` (including `config.d\dscreg
 - [First Copilot prompt](COPILOT_KICKOFF.md)
 - [Coding agent instructions](AGENTS.md)
 - [Example configuration](examples/dscregsyncd.json)
-
-## Bootstrap when the GitHub repository is created
-
-This bundle is an initial repository tree. Create an **empty** GitHub repository named `Bpoe/dsc-registry-sync` (do not auto-add a README/license), then from this directory:
-
-```sh
-git init -b main
-git add .
-git commit -m "docs: establish DSC Registry Sync v1 design and Copilot plan"
-git remote add origin https://github.com/Bpoe/dsc-registry-sync.git
-git push -u origin main
-```
-
-Then paste `COPILOT_KICKOFF.md` into a GitHub Copilot coding-agent task. **PR 1 only**: do not ask Copilot to implement the entire plan at once.
 
 ## Cross-repository prerequisites
 

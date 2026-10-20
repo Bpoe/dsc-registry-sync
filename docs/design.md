@@ -39,7 +39,7 @@ Not in v1: remote commands, installing DSC itself, administering `dscd`, cloud d
 | Template | `/etc/dsc/config.d/dscregsync/docker.json` | `%ProgramData%\dsc\config.d\dscregsync\docker.json` |
 | Parameters | `.../dscregsync/docker.parameters.json` | `...\dscregsync\docker.parameters.json` |
 | Per-unit revision | `.../dscregsync/.docker.revision` | `...\dscregsync\.docker.revision` |
-| Machine HTTP ETag | `.../dscregsync/machine.etag` | `...\dscregsync\machine.etag` |
+| Machine HTTP ETag | `/etc/dsc/machine.etag` | `%ProgramData%\dsc\machine.etag` |
 | `dscd` result | `/var/lib/dsc/results.d/dscregsync/docker.json.result.json` | `%ProgramData%\dsc\results.d\dscregsync\docker.json.result.json` |
 
 `configDir` and `resultsDir` identify `dscd` root directories; the service always derives the private `dscregsync` subdirectories beneath them. The Registry exposes one flat list of configuration names, not arbitrary subdirectories. Each name is a lowercase safe stem validated before forming file paths.
