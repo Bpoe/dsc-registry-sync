@@ -215,6 +215,16 @@ Neither observation nor upload modifies results, input files or ETags.
 An in-memory name/ID/deadline map and one in-flight request are not an outbox;
 missed intermediate executions cannot be recovered from the latest-result file.
 
+Invalid result-name hints (for example `UPPER.json.result.json`) are skipped
+during startup/recovery scans, just as invalid notification names are ignored.
+Each skipped hint emits a structured warning without the filename or contents;
+valid results in the same directory remain discoverable. Real scan I/O and
+confinement failures still fail the scan and trigger watcher recovery, and
+snapshot name/path validation remains mandatory. This is a discovery-only
+policy: the publisher's authoritative `localNames()` inventory still fails
+closed on unexpected managed artifacts rather than silently changing deletion
+behavior.
+
 ## Compatibility check before integration
 
 Registry `5a4ddb543afc103de3ad933922ed5f603f3ff656` documents and implements

@@ -39,7 +39,8 @@ func (p *Publisher) ResultNames() (names []string, err error) {
 			continue
 		}
 		if !registry.ValidName(name) {
-			return nil, errors.New("unsafe result name")
+			p.log.Warn("ignoring unsafe result scan name")
+			continue
 		}
 		names = append(names, name)
 	}

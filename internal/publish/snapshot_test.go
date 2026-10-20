@@ -1,8 +1,11 @@
 package publish
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -108,6 +111,11 @@ func TestSnapshotConfinedRegularFiles(t *testing.T) {
 			if _, err := p.SnapshotResult(context.Background(), "docker"); err == nil || strings.Contains(err.Error(), outside) {
 				t.Fatal("followed link or disclosed its target")
 			}
+			if target == "directory" {
+				if _, err := p.ResultNames(); err == nil || strings.Contains(err.Error(), outside) {
+					t.Fatal("scan followed managed directory link or disclosed its target")
+				}
+			}
 		})
 	}
 	p := newPublisher(t)
@@ -133,9 +141,47 @@ func TestSnapshotValidationAndScan(t *testing.T) {
 	if err != nil || len(names) != 1 || names[0] != "docker" {
 		t.Fatal("scan included non-destination files")
 	}
-	put(t, p.resultsDir, "UPPER.json.result.json", "{}")
-	if _, err := p.ResultNames(); err == nil {
-		t.Fatal("scan accepted unsafe name")
+	var logs bytes.Buffer
+	p.log = slog.New(slog.NewJSONHandler(&logs, nil))
+	for _, name := range []string{"UPPER", "BAD-private-filename"} {
+		put(t, p.resultsDir, name+".json.result.json", "private-result")
+	}
+	names, err = p.ResultNames()
+	if err != nil || len(names) != 1 || names[0] != "docker" {
+		t.Fatal("invalid discovery hints hid valid results")
+	}
+	lines := strings.Split(strings.TrimSpace(logs.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatal("scan did not warn for each invalid name")
+	}
+	for _, line := range lines {
+		var entry map[string]any
+		if json.Unmarshal([]byte(line), &entry) != nil || entry["level"] != "WARN" ||
+			entry["msg"] != "ignoring unsafe result scan name" {
+			t.Fatal("scan warning was not structured")
+		}
+	}
+	if strings.Contains(logs.String(), "UPPER") || strings.Contains(logs.String(), "private-") {
+		t.Fatal("scan warning exposed arbitrary filenames or result content")
+	}
+}
+
+func TestResultNamesPreservesFilesystemErrors(t *testing.T) {
+	for _, managedFile := range []bool{false, true} {
+		p := newPublisher(t)
+		path := p.resultsDir
+		if managedFile {
+			if err := os.Mkdir(path, 0700); err != nil {
+				t.Fatal(err)
+			}
+			path = filepath.Join(path, "dscregsync")
+		}
+		if err := os.WriteFile(path, []byte("private-result"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := p.ResultNames(); err == nil || strings.Contains(err.Error(), path) {
+			t.Fatal("scan suppressed filesystem error or exposed its path")
+		}
 	}
 }
 

@@ -276,6 +276,79 @@ func TestRecoveryScanAfterOverflowAndDirectoryReplacement(t *testing.T) {
 	receive(t, requests)
 }
 
+func TestMixedResultNamesDuringStartupAndRecovery(t *testing.T) {
+	for _, phase := range []string{"startup", "recovery"} {
+		t.Run(phase, func(t *testing.T) {
+			requests := make(chan []byte, 4)
+			s := testService(t, func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				w.WriteHeader(201)
+				requests <- body
+			})
+			var logs bytes.Buffer
+			s.log = slog.New(slog.NewJSONHandler(&logs, nil))
+			s.publisher = publish.New(filepath.Join(filepath.Dir(s.root), "config.d"), s.root, s.log)
+			managed := filepath.Join(s.root, "dscregsync")
+			invalid := func() {
+				t.Helper()
+				for _, name := range []string{"UPPER", "BAD-private-filename"} {
+					if err := os.WriteFile(filepath.Join(managed, name+".json.result.json"), []byte("private-result"), 0600); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			data := fixture(t, "input-failure")
+			publishResult(t, s, data)
+			if phase == "startup" {
+				invalid()
+			}
+			watchers := observeWatchers(s)
+			stop := start(t, s)
+			first := receive(t, watchers)
+			if body := receive(t, requests); !bytes.Contains(body, data) {
+				t.Fatal("startup scan lost valid result")
+			}
+			if phase == "recovery" {
+				if err := first.Remove(managed); err != nil {
+					t.Fatal(err)
+				}
+				invalid()
+				data = fixture(t, "succeeded")
+				publishResult(t, s, data)
+				select {
+				case first.Errors <- fsnotify.ErrEventOverflow:
+				case <-time.After(time.Second):
+					t.Fatal("watcher did not consume recovery trigger")
+				}
+				receive(t, watchers)
+				if body := receive(t, requests); !bytes.Contains(body, data) {
+					t.Fatal("recovery scan lost valid result")
+				}
+			}
+			stop()
+			warnings := 0
+			for _, line := range strings.Split(strings.TrimSpace(logs.String()), "\n") {
+				var entry map[string]any
+				if json.Unmarshal([]byte(line), &entry) != nil {
+					t.Fatal("unstructured watcher log")
+				}
+				if entry["msg"] == "ignoring unsafe result scan name" {
+					if entry["level"] != "WARN" {
+						t.Fatal("invalid hint was not a warning")
+					}
+					warnings++
+				}
+			}
+			if warnings < 2 {
+				t.Fatal("scan did not warn about both invalid hints")
+			}
+			if strings.Contains(logs.String(), "UPPER") || strings.Contains(logs.String(), "private-") {
+				t.Fatal("scan logged arbitrary filename or content")
+			}
+		})
+	}
+}
+
 func TestWatcherCreationFailureRecoversAndCancels(t *testing.T) {
 	requests := make(chan bool, 2)
 	s := testService(t, func(w http.ResponseWriter, r *http.Request) {
