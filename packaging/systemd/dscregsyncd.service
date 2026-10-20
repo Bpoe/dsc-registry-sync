@@ -1,0 +1,26 @@
+[Unit]
+Description=DSC Registry synchronization daemon
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/etc/dsc/dscregsyncd.json
+
+[Service]
+Type=simple
+User=root
+Group=root
+ExecStart=/usr/bin/dscregsyncd -config /etc/dsc/dscregsyncd.json
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=40s
+KillMode=control-group
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/etc/dsc/config.d /var/lib/dsc/results.d
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

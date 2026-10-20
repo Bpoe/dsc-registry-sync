@@ -1,0 +1,49 @@
+name: dscregsyncd
+arch: amd64
+platform: linux
+version: ${VERSION}
+maintainer: Bpoe <Bpoe@users.noreply.github.com>
+description: Machine-scoped DSC Registry synchronization daemon
+homepage: https://github.com/Bpoe/dsc-registry-sync
+license: MIT
+contents:
+  - src: ${BINARY_PATH}
+    dst: /usr/bin/dscregsyncd
+    expand: true
+    file_info:
+      mode: 0755
+      owner: root
+      group: root
+  - src: packaging/systemd/dscregsyncd.service
+    dst: /usr/lib/systemd/system/dscregsyncd.service
+    file_info:
+      mode: 0644
+      owner: root
+      group: root
+  - src: examples/dscregsyncd.json
+    dst: /usr/share/doc/dscregsyncd/dscregsyncd.example.json
+    file_info:
+      mode: 0644
+      owner: root
+      group: root
+  - src: LICENSE
+    dst: /usr/share/licenses/dscregsyncd/LICENSE
+    file_info:
+      mode: 0644
+      owner: root
+      group: root
+overrides:
+  deb:
+    depends:
+      - init-system-helpers (>= 1.54)
+    scripts:
+      postinstall: packaging/linux/deb/postinst
+      preremove: packaging/linux/deb/prerm
+      postremove: packaging/linux/deb/postrm
+  rpm:
+    depends:
+      - systemd
+    scripts:
+      postinstall: packaging/linux/rpm/postinstall
+      preremove: packaging/linux/rpm/preremove
+      postremove: packaging/linux/rpm/postremove

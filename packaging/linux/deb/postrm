@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+if [ "$1" = remove ] || [ "$1" = purge ]; then
+    deb-systemd-helper purge dscregsyncd.service >/dev/null
+    if [ -d /run/systemd/system ]; then
+        systemctl daemon-reload
+    fi
+fi

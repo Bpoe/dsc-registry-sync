@@ -47,6 +47,16 @@ No service packaging, persistent upload state or real DSC execution is included.
 
 ## PR 4 — production packaging, cross-service integration and documentation
 
+**Implemented in this stage:** native SCM lifecycle with Event Log output and
+bounded shutdown, systemd hardening, non-destructive DEB/RPM/MSI sources,
+disposable-host repair/upgrade/uninstall checks, release gating, operations
+documentation and an opt-in real Registry/reconciler/DSC roundtrip with a
+controlled resource barrier proving protection interoperability.
+Windows unit/vet and real peer runtime checks passed locally. Native Linux and
+Windows checks, real-peer roundtrips and package lifecycle jobs now pass in CI.
+Target-deployment and real machine reboot acceptance remain outstanding. See [deployment.md](deployment.md)
+for exact evidence, commands and release gates; do not declare v1 ready yet.
+
 - Add Linux `.deb`/`.rpm` with systemd unit and appropriate permissions, native Windows service/MSI following `dsc-reconciler` conventions. Service installation must not overwrite existing machine keys or managed input data.
 - Integration smoke tests against real `dscregd` and lock-enabled `dscd`: initial 200, 304, changed parameters, delete, result generation, historical upload and reboot/restart.
 - Verify upstream Registry path-validation fix and cross-platform runtime locking tests; report missing prerequisites instead of claiming success.

@@ -1,6 +1,10 @@
 # `dscregsyncd` — v1 architecture and behavior
 
-**Status:** PRs 1-3 implement foreground polling, managed publication/revision state, result watching and history uploads. Native service deployment and deployed cross-service integration remain PR 4 work. **Date:** 2026-10-19.
+**Status:** PRs 1-3 implement foreground synchronization; stage 4 adds native
+service/packaging sources and real peer integration coverage. Native checks,
+real-peer roundtrips and package lifecycle jobs pass in Linux/Windows CI.
+Target-deployment and reboot acceptance remain readiness gates.
+See [deployment.md](deployment.md). **Date:** 2026-10-19.
 
 `dscregsyncd` is an independent, small Go machine-side synchronization service for DSC Registry. It is neither an execution engine nor a replacement for [`dscd`](https://github.com/Bpoe/dsc-reconciler). It runs on Linux and Windows and never invokes the DSC executable or imports Registry's server internals.
 
@@ -68,7 +72,7 @@ The Registry's monotonically increasing `configurationRevision` integer appears 
 **Publication boundary:** the publisher applies complete validated collections and
 commits the ETag before the poller promotes it in memory. HTTP failures and 304s
 never invoke the publisher. Result watching/upload runs independently; service
-packaging remains deferred. See [protocol.md](protocol.md#client-validation-and-poll-policy) for
+packaging is described in [deployment.md](deployment.md). See [protocol.md](protocol.md#client-validation-and-poll-policy) for
 concrete validation limits and retry bounds.
 
 ## 5. Update/delete and `dscd` coordination
@@ -153,9 +157,11 @@ The loopback development opt-in is `allowInsecureLoopback` (default `false`).
 It permits HTTP only for `localhost` or literal loopback addresses. The foreground
 publisher assumes one daemon owns the managed input tree; it does not implement
 multi-process leader election or lock files. Private new-file permissions are
-implemented; installation/root ownership and deployment hardening remain PR 4 work.
+implemented; installation/root ownership and deployment hardening are covered by
+the stage 4 packages and provisioning instructions. Existing ancestor safety
+remains an administrator responsibility.
 
-Log state transitions, poll/HTTP status codes, retry/backoff, per-unit publication success/failure, and report-upload outcome via structured logging. Do not log API keys, JSON template/parameter bodies, raw `dscResult`, stderr or any other potentially secret material. Respect cancellation and timeouts. Independent restarts are supported. Separate Windows service and Linux systemd packaging follow `dsc-reconciler`'s platform patterns, not its binary/package identity.
+Log state transitions, poll/HTTP status codes, retry/backoff, per-unit publication success/failure, and report-upload outcome via structured logging. Do not log API keys, JSON template/parameter bodies, raw `dscResult`, stderr or any other potentially secret material. Respect cancellation and timeouts. Independent restarts are supported. Separate Windows service and Linux systemd packaging follow `dsc-reconciler`'s platform patterns, not its binary/package identity. Windows SCM logs go to its own Application Event Log source; cancellation has a 30-second cleanup deadline, with nonzero exit on timeout. Packages preserve provisioned data and never install DSC or `dscd`.
 
 ## 8. Limitations and acceptance scenarios
 
