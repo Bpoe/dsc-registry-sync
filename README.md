@@ -2,7 +2,11 @@
 
 `dscregsyncd` is a small, independent Go service that synchronizes DSC Registry desired-state configurations to an existing local `dscd` reconciler and uploads `dscd` results to DSC Registry.
 
-**Status:** PR 3 foreground synchronizer. The daemon conditionally polls desired state, publishes managed inputs with revision/ETag state, watches completed local results and uploads them through Registry's history API. Native service installation and deployed cross-service integration remain PR 4 work.
+**Status:** Stage 4 adds native Windows service support, systemd/DEB/RPM/MSI
+packaging, disposable-host installation checks and real cross-service integration
+coverage. The complete roundtrip, including real `dscd` protection, has run on
+Windows. Linux runtime, installed-service lifecycle and actual reboot acceptance
+remain release gates; this is **not yet a v1 production-readiness declaration**.
 
 ## Responsibilities
 
@@ -67,8 +71,16 @@ key in JSON, command-line arguments or source control. Restrict the key file to
 the service identity (Linux mode 0600, Windows restricted ACLs). This stage reads
 the key at startup; restart after key rotation. It does not change key permissions.
 `-config` defaults to the platform service-config path above. `-help` prints
-usage. Ctrl+C, and SIGTERM on Linux, cancel requests and waits. Logs are JSON on
+usage; `-version` identifies the build. Ctrl+C, and SIGTERM on Linux, cancel requests and waits. Logs are JSON on
 stderr; startup/validation failures exit nonzero, while HTTP failures back off.
+Windows SCM stop/shutdown cancels both loops; installed-service JSON logs go to
+the Application Event Log (`dscregsyncd`, event ID 1). Foreground and service
+shutdown allow 30 seconds for cleanup before exiting nonzero.
+
+See [deployment.md](docs/deployment.md) for package builds, installation,
+protected credential provisioning, upgrade/uninstall behavior and acceptance
+checks. Neither package family installs DSC or `dscd`, registers a machine, or
+ships a key or active configuration file.
 
 `registryUrl` is required and must be an HTTPS origin, with no credentials,
 non-root path, query or fragment. Other fields default as shown in the
@@ -147,8 +159,12 @@ go test -race ./...
 
 Run `gofmt` on changed Go sources. Race tests require a supported C toolchain
 and cgo enabled. CI checks formatting, tests, vet, race tests and native builds
-on Linux and Windows, plus a Windows cross-build from Linux. This is not yet
-cross-service integration or evidence that v1 is production-ready.
+on Linux and Windows, plus a Windows cross-build from Linux. Deployment CI also
+builds pinned real Registry/reconciler peers and runs native roundtrips with DSC
+3.3.0, then exercises package install/repair/upgrade/uninstall on disposable
+hosts. Tagged releases require all these jobs before publishing packages.
+RPM lifecycle checks run in Fedora without systemd; Debian checks exercise real
+systemd. A green cross-build alone is never native runtime evidence.
 
 Publisher tests include separate-process OS protection, abrupt process exits
 at publication boundaries, restart/retry, incomplete collections, private
@@ -172,10 +188,11 @@ exercises Registry-permitted optional fields and an additive field.
 - [First Copilot prompt](COPILOT_KICKOFF.md)
 - [Coding agent instructions](AGENTS.md)
 - [Example configuration](examples/dscregsyncd.json)
+- [Deployment, operations and integration acceptance](docs/deployment.md)
 
 ## Cross-repository prerequisites
 
-1. `dsc-reconciler`: current upstream source implements per-configuration protection through result publication (Linux cooperative exclusive `flock`, Windows denial of write/delete sharing). PR 2 tests reproduce that OS handshake in separate processes without running DSC. A compatible deployed `dscd` and real cross-service interoperability remain required before v1 readiness.
-2. `dsc-registry`: the former hardcoded `managed/{name}.json` report validation is removed in upstream `main` (rechecked at `5a4ddb5`). Verify the deployed Registry includes the history API and path fix before production integration; never falsify an envelope to work around older servers.
+1. `dsc-reconciler`: current upstream source implements per-configuration protection through result publication (Linux cooperative exclusive `flock`, Windows denial of write/delete sharing). PR 2 tests reproduce that OS handshake in separate processes. Stage 4's opt-in test also holds a real DSC resource request inside real `dscd` while publication waits. Windows has passed; Linux and compatible deployed versions remain required before v1 readiness.
+2. `dsc-registry`: the former hardcoded `managed/{name}.json` report validation is removed in upstream `main` (rechecked at `5a4ddb5` and exercised with real relative-path reports on Windows). Verify the deployed Registry includes the history API and path fix; never falsify an envelope to work around older servers.
 3. Treat current `dsc-registry/docs/api.md` and actual server behavior as the authority for machine GET and the newer `POST /v1/agent/reports` API, including history and deduplication.
 4. Registry's current name validator accepts Windows device stems such as `con` and `nul.txt`. This client rejects them on **both** platforms, in addition to the documented Registry stem grammar, rather than accepting a collection that cannot safely be published on Windows. Such a response fails validation in its entirety; upstream name alignment remains separate work.

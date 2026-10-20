@@ -28,6 +28,11 @@ go.work.sum
 # env file
 .env
 
+/dist/
+**/obj/
+**/bin/
+/dscregsyncd
+
 # Editor/IDE
 # .idea/
 # .vscode/

@@ -4,12 +4,11 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"log/slog"
 	"math/rand/v2"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/Bpoe/dsc-registry-sync/internal/config"
@@ -18,19 +17,23 @@ import (
 	"github.com/Bpoe/dsc-registry-sync/internal/results"
 )
 
+var version = "dev"
+
 func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	code := run(ctx, os.Args[1:], os.Stderr)
-	stop()
-	os.Exit(code)
+	os.Exit(platformRun(os.Args[1:]))
 }
 
 func run(ctx context.Context, args []string, output io.Writer) int {
+	return runReady(ctx, args, output, func() {})
+}
+
+func runReady(ctx context.Context, args []string, output io.Writer, ready func()) int {
 	log := slog.New(slog.NewJSONHandler(output, nil))
 	flags := flag.NewFlagSet("dscregsyncd", flag.ContinueOnError)
 	// flag errors echo user input; only help output is safe to print verbatim.
 	flags.SetOutput(io.Discard)
 	path := flags.String("config", config.DefaultPath(), "path to the service JSON configuration")
+	printVersion := flags.Bool("version", false, "print the build version and exit")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			flags.SetOutput(output)
@@ -43,6 +46,12 @@ func run(ctx context.Context, args []string, output io.Writer) int {
 	if flags.NArg() != 0 {
 		log.Error("unexpected positional arguments; use -help")
 		return 2
+	}
+	if *printVersion {
+		if _, err := fmt.Fprintf(output, "dscregsyncd %s\n", version); err != nil {
+			return 1
+		}
+		return 0
 	}
 	cfg, err := config.Load(*path)
 	if err != nil {
@@ -63,6 +72,7 @@ func run(ctx context.Context, args []string, output io.Writer) int {
 	defer client.Close()
 	publisher := publish.New(cfg.ConfigDir, cfg.ResultsDir, log)
 	log.Info("daemon started", "mode", "managed-sync", "committed_etag_present", etag != "")
+	ready()
 	resultsStopped := make(chan struct{})
 	go func() {
 		defer close(resultsStopped)

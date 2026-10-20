@@ -247,6 +247,7 @@ func TestCLIAndStartupFailuresArePrivate(t *testing.T) {
 		code int
 	}{
 		{[]string{"-help"}, 0},
+		{[]string{"-version"}, 0},
 		{[]string{"-unknown=" + secret}, 2},
 		{[]string{secret}, 2},
 		{[]string{"-config", filepath.Join(t.TempDir(), secret)}, 1},

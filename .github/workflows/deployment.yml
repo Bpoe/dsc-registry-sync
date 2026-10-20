@@ -1,0 +1,160 @@
+name: Deployment
+
+on:
+  pull_request:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  VERSION: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'v0.0.1' }}
+
+jobs:
+  checks:
+    uses: ./.github/workflows/go.yml
+
+  roundtrip:
+    name: Real peer roundtrip (${{ matrix.os }})
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Bpoe/dsc-registry
+          ref: 5a4ddb543afc103de3ad933922ed5f603f3ff656
+          path: upstream/registry
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: Bpoe/dsc-reconciler
+          ref: d6010bf737dbbbfd56d69d98d1fc20132022c8dd
+          path: upstream/reconciler
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Build real peers
+        shell: pwsh
+        run: |
+          $suffix = if ($IsWindows) { '.exe' } else { '' }
+          go -C upstream/registry build -o "$env:RUNNER_TEMP/dscregd$suffix" ./cmd/dscregd
+          if ($LASTEXITCODE -ne 0) { throw 'Registry build failed' }
+          go -C upstream/reconciler build -o "$env:RUNNER_TEMP/dscd$suffix" ./cmd/dscd
+          if ($LASTEXITCODE -ne 0) { throw 'Reconciler build failed' }
+          "DSCREGD_BINARY=$env:RUNNER_TEMP/dscregd$suffix" >> $env:GITHUB_ENV
+          "DSCD_BINARY=$env:RUNNER_TEMP/dscd$suffix" >> $env:GITHUB_ENV
+      - name: Obtain verified DSC runtime
+        shell: pwsh
+        run: |
+          if ($IsWindows) {
+            $asset = 'DSC-3.3.0-x86_64-pc-windows-msvc.zip'
+            $hash = '3f8b27f648661903d066cc19d5a6e7a8c13bd07eb738d4d765ce7239619b8b5f'
+          } else {
+            $asset = 'DSC-3.3.0-x86_64-linux.tar.gz'
+            $hash = 'cf17d1a130b65332ec65380ee9368133101d13d8f40c1a501038920b1e9cd748'
+          }
+          $archive = Join-Path $env:RUNNER_TEMP $asset
+          Invoke-WebRequest "https://github.com/PowerShell/DSC/releases/download/v3.3.0/$asset" -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne $hash) { throw 'DSC checksum mismatch' }
+          $destination = Join-Path $env:RUNNER_TEMP 'dsc-runtime'
+          New-Item -ItemType Directory -Path $destination | Out-Null
+          if ($IsWindows) {
+            Expand-Archive $archive $destination
+            "DSC_BINARY=$destination\dsc.exe" >> $env:GITHUB_ENV
+          } else {
+            tar -xzf $archive -C $destination
+            if ($LASTEXITCODE -ne 0) { throw 'DSC extraction failed' }
+            "DSC_BINARY=$destination/dsc" >> $env:GITHUB_ENV
+          }
+      - name: Native locking and complete history roundtrip
+        env:
+          DSCREGSYNC_INTEGRATION: '1'
+        run: go test -race ./cmd/dscregsyncd -run '^TestRealServiceRoundtrip$' -count=1 -timeout 5m -v
+
+  packages:
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Windows packages
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          .\packaging\windows\build.ps1 -Version v0.0.0 -OutputDirectory "$env:RUNNER_TEMP\baseline"
+          .\packaging\windows\build.ps1 -Version $env:VERSION -OutputDirectory dist
+          $version = $env:VERSION.Substring(1)
+          $arguments = @{ MsiPath = "$env:RUNNER_TEMP\baseline\dscregsyncd-0.0.0-windows-amd64.msi"; Disposable = $true }
+          if ($version -ne '0.0.0') { $arguments.UpgradeMsiPath = "$PWD\dist\dscregsyncd-$version-windows-amd64.msi" }
+          .\packaging\windows\test-install.ps1 @arguments
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y rpm
+          GOBIN="$RUNNER_TEMP/package-tools" go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0
+          export PATH="$RUNNER_TEMP/package-tools:$PATH"
+          VERSION=v0.0.0 bash packaging/linux/build.sh "$RUNNER_TEMP/baseline"
+          bash packaging/linux/build.sh dist
+          version="${VERSION#v}"
+          args=("$RUNNER_TEMP/baseline/dscregsyncd_0.0.0_amd64.deb")
+          if [[ "$version" != 0.0.0 ]]; then args+=("$PWD/dist/dscregsyncd_${version}_amd64.deb"); fi
+          sudo env DSCREGSYNC_DISPOSABLE=1 bash packaging/linux/test-install.sh "${args[@]}"
+          docker run --rm -e DSCREGSYNC_DISPOSABLE=1 -e VERSION \
+            -v "$PWD/dist:/packages:ro" -v "$RUNNER_TEMP/baseline:/baseline:ro" \
+            -v "$PWD/packaging/linux:/tests:ro" fedora:43 bash -euc '
+              args=(/baseline/dscregsyncd-0.0.0-1.x86_64.rpm)
+              if [[ "${VERSION#v}" != 0.0.0 ]]; then args+=("/packages/dscregsyncd-${VERSION#v}-1.x86_64.rpm"); fi
+              bash /tests/test-install.sh "${args[@]}"
+            '
+      - name: Checksums
+        shell: pwsh
+        run: |
+          $lines = Get-ChildItem dist -File | Sort-Object Name | ForEach-Object {
+            '{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $_.Name
+          }
+          [IO.File]::WriteAllLines("$PWD/dist/SHA256SUMS", $lines, [Text.UTF8Encoding]::new($false))
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ runner.os }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [checks, roundtrip, packages]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: packages-*
+          path: artifacts
+      - name: Publish verified packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          cat artifacts/packages-*/SHA256SUMS > artifacts/SHA256SUMS
+          gh release create "$VERSION" artifacts/packages-Linux/*.deb artifacts/packages-Linux/*.rpm \
+            artifacts/packages-Windows/*.msi artifacts/SHA256SUMS --verify-tag --generate-notes

@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+[ "$1" = configure ] || exit 0
+for directory in /etc/dsc /etc/dsc/config.d /var/lib/dsc /var/lib/dsc/results.d; do
+    if [ -L "$directory" ] || { [ -e "$directory" ] && [ ! -d "$directory" ]; }; then
+        echo "dscregsyncd: unsafe service directory" >&2
+        exit 1
+    fi
+    if [ ! -d "$directory" ]; then
+        install -d -o root -g root -m 0700 "$directory"
+    fi
+done
+deb-systemd-helper unmask dscregsyncd.service >/dev/null
+action=try-restart
+if ! deb-systemd-helper debian-installed dscregsyncd.service; then
+    deb-systemd-helper enable dscregsyncd.service >/dev/null
+    action=start
+fi
+if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload
+    deb-systemd-invoke "$action" dscregsyncd.service
+fi

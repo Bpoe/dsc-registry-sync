@@ -1,1 +1,7 @@
 *.go text eol=lf
+*.sh text eol=lf
+*.service text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+packaging/linux/deb/* text eol=lf
+packaging/linux/rpm/* text eol=lf

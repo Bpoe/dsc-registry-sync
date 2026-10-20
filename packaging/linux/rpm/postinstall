@@ -1,0 +1,22 @@
+#!/bin/sh
+set -eu
+for directory in /etc/dsc /etc/dsc/config.d /var/lib/dsc /var/lib/dsc/results.d; do
+    if [ -L "$directory" ] || { [ -e "$directory" ] && [ ! -d "$directory" ]; }; then
+        echo "dscregsyncd: unsafe service directory" >&2
+        exit 1
+    fi
+    if [ ! -d "$directory" ]; then
+        install -d -o root -g root -m 0700 "$directory"
+    fi
+done
+if [ "$1" -eq 1 ]; then
+    systemctl enable dscregsyncd.service
+fi
+if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload
+    if [ "$1" -eq 1 ]; then
+        systemctl start dscregsyncd.service
+    else
+        systemctl try-restart dscregsyncd.service
+    fi
+fi

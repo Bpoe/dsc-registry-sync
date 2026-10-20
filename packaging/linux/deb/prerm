@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+if [ "$1" = remove ]; then
+    if [ -d /run/systemd/system ]; then
+        deb-systemd-invoke stop dscregsyncd.service
+    fi
+    deb-systemd-helper disable dscregsyncd.service >/dev/null
+fi

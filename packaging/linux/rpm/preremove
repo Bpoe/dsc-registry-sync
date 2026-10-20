@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+if [ "$1" -eq 0 ]; then
+    if [ -d /run/systemd/system ]; then
+        systemctl stop dscregsyncd.service
+    fi
+    systemctl disable dscregsyncd.service
+fi

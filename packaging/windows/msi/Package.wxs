@@ -1,0 +1,51 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Package Name="DSC Registry Sync" Manufacturer="Bpoe"
+           Version="$(var.ProductVersion)" UpgradeCode="{AA0611B9-3138-485D-B94C-92C62D9274B2}"
+           Scope="perMachine" InstallerVersion="500" Language="1033">
+    <MajorUpgrade DowngradeErrorMessage="A newer DSC Registry Sync is installed."
+                  Schedule="afterInstallInitialize" />
+    <MediaTemplate EmbedCab="yes" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="dscregsyncd">
+        <Component Id="Daemon" Guid="{4EEC6EF8-A5A5-4371-B04E-01562CC16954}" Bitness="always64">
+          <CreateFolder>
+            <PermissionEx Sddl="O:SYG:SYD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)" />
+          </CreateFolder>
+          <File Id="DaemonFile" Source="$(var.BinaryPath)" Name="dscregsyncd.exe"
+                KeyPath="yes" DefaultVersion="$(var.ProductVersion).0" DefaultLanguage="0" />
+          <ServiceInstall Id="SyncService" Name="dscregsyncd" DisplayName="DSC Registry Sync"
+                          Description="Synchronizes Registry desired state and uploads local DSC results."
+                          Type="ownProcess" Start="auto" ErrorControl="normal" Account="LocalSystem"
+                          Arguments='-config "[CommonAppDataFolder]dsc\dscregsyncd.json"' Vital="yes">
+            <ServiceConfig FailureActionsWhen="failedToStopOrReturnedError"
+                           OnInstall="yes" OnReinstall="yes" />
+            <util:ServiceConfig FirstFailureActionType="restart" SecondFailureActionType="restart"
+                                ThirdFailureActionType="restart" ResetPeriodInDays="1"
+                                RestartServiceDelayInSeconds="5" />
+          </ServiceInstall>
+          <!-- Provision credentials before explicitly starting the service. -->
+          <ServiceControl Id="SyncControl" Name="dscregsyncd" Stop="both" Remove="both" Wait="yes" />
+        </Component>
+        <Component Id="EventSource" Guid="{22BCC42E-9818-47D6-AB92-8A32CBF8A252}" Bitness="always64">
+          <RegistryKey Root="HKLM" Key="SYSTEM\CurrentControlSet\Services\EventLog\Application\dscregsyncd"
+                       ForceDeleteOnUninstall="yes">
+            <RegistryValue Name="EventMessageFile" Type="expandable"
+                           Value="[System64Folder]EventCreate.exe" KeyPath="yes" />
+            <RegistryValue Name="TypesSupported" Type="integer" Value="7" />
+            <RegistryValue Name="CustomSource" Type="integer" Value="1" />
+          </RegistryKey>
+        </Component>
+        <Component Id="License" Guid="{7FD9546B-7B96-49F2-8A96-C3B9A25A3673}" Bitness="always64">
+          <File Source="$(sys.SOURCEFILEDIR)..\..\..\LICENSE" KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+    <Feature Id="Complete" Title="DSC Registry Sync" Level="1">
+      <ComponentRef Id="Daemon" />
+      <ComponentRef Id="EventSource" />
+      <ComponentRef Id="License" />
+    </Feature>
+  </Package>
+</Wix>
