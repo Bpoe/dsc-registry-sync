@@ -14,11 +14,11 @@ Do **not** implement everything in one PR. A narrow PR sequence keeps platform s
 
 ## PR 2 — local managed publisher and revision state
 
-**Implemented in this stage:** foreground Registry-to-filesystem application,
+**Implemented in PR 2:** foreground Registry-to-filesystem application,
 private staging/permissions, cooperative platform protection, revision state
 and last-step ETag commits. Runtime tests reproduce the upstream protection
 contract in separate processes and exercise abrupt exit/restart boundaries.
-Real deployed-service integration remains PR 4; no PR 3 watcher/uploader is included.
+Real deployed-service integration remains PR 4; PR 2 did not include a watcher/uploader.
 
 - Implement `config.d/dscregsync/{name}.json`, optional `.parameters.json`, `.NAME.revision`, and committed `machine.etag` behavior as in design.
 - Validate full 200 response before modifying files; install only changed/missing units, delete absent managed units only after complete response.
@@ -29,6 +29,14 @@ Real deployed-service integration remains PR 4; no PR 3 watcher/uploader is incl
 **Done when:** a real or mock Registry 200 publishes/updates/deletes only the owned subtree, and ETag commits only after all updates succeed.
 
 ## PR 3 — result watcher and history API uploader
+
+**Implemented in this stage:** native filesystem notifications with startup and
+recovery scans, confined per-unit snapshots, immutable history-API requests,
+documented deterministic UUIDv5 identity, latest-only retries and independent
+poll/upload cancellation. Tests cover exact bytes and envelope variants,
+restart deduplication, HTTP failure policy, missing/replaced directories,
+watcher failures, stable snapshots and publication/polling during blocked uploads.
+No service packaging, persistent upload state or real DSC execution is included.
 
 - Watch `results.d/dscregsync/` for complete result publications, coalescing notifications; startup and watcher-recovery one-time scans.
 - Snapshot result bytes and corresponding `.NAME.revision` under the service's per-unit synchronization; never associate old result with new revision.
