@@ -1,6 +1,6 @@
 # `dscregsyncd` — v1 architecture and behavior
 
-**Status:** PRs 1-2 implement foreground polling and managed publication/revision state. Result upload and native service deployment remain staged work. **Date:** 2026-10-19.
+**Status:** PRs 1-3 implement foreground polling, managed publication/revision state, result watching and history uploads. Native service deployment and deployed cross-service integration remain PR 4 work. **Date:** 2026-10-19.
 
 `dscregsyncd` is an independent, small Go machine-side synchronization service for DSC Registry. It is neither an execution engine nor a replacement for [`dscd`](https://github.com/Bpoe/dsc-reconciler). It runs on Linux and Windows and never invokes the DSC executable or imports Registry's server internals.
 
@@ -65,10 +65,10 @@ No local state DB, extra lock file, saved `inputHash`, template/parameters hashe
 
 The Registry's monotonically increasing `configurationRevision` integer appears in the response, but no separate persisted copy is needed: ETag carries the collection validator. Individual `revision` UUIDs are persisted in per-unit files.
 
-**PR 2 boundary:** the publisher now applies complete validated collections and
+**Publication boundary:** the publisher applies complete validated collections and
 commits the ETag before the poller promotes it in memory. HTTP failures and 304s
-never invoke the publisher. Result watching/upload and service packaging remain
-deferred. See [protocol.md](protocol.md#client-validation-and-poll-policy) for
+never invoke the publisher. Result watching/upload runs independently; service
+packaging remains deferred. See [protocol.md](protocol.md#client-validation-and-poll-policy) for
 concrete validation limits and retry bounds.
 
 ## 5. Update/delete and `dscd` coordination
@@ -100,8 +100,10 @@ Run both processes with compatible identities. Staged files are flushed and
 closed before rename. Linux flushes changed result directories and the input
 directory before the ETag commit point. Windows has no portable directory
 fsync; neither platform promises a multi-file power-loss transaction.
-`Publisher.WithUnit` is the shared synchronization entry point for PR 3's
-revision/result snapshot; no uploader or watcher is implemented in PR 2.
+`Publisher.SnapshotResult` uses `Publisher.WithUnit`, the same synchronization
+entry point as publication, and the same confined directory/file helpers.
+It verifies file identity, length and modification time around the bounded read.
+Network requests run only after releasing the gate.
 
 **Invariant:** A result of the previous installed unit must not be uploaded under the new content revision. `dscd` must finish result publication before unlocking, the client removes old results before publishing the new configuration, and local update/read handlers must be serialized by unit.
 
@@ -116,6 +118,19 @@ revision/result snapshot; no uploader or watcher is implemented in PR 2.
 - If a result is replaced while being read, verify a stable snapshot or retry. Never upload partially written JSON, or upload a result that can only be associated with an unknown/missing revision. Input failures may legitimately omit `inputHash`; preserve that fact without trying to calculate a value.
 - Network failures/429/503/5xx: back off/retry if the snapshot remains relevant, honoring `Retry-After`. Unauthorized key: surface error and back off without deleting input. A stable invalid-report `400` is not cured by blind fast retry; log minimal metadata. `409` now means upload-ID conflict, **not** stale desired revision; do not blindly generate a new ID for an unchanged payload. The report-history API accepts old revisions.
 - Keep result upload separate from polling so Registry outage doesn't block local `dscd`. No periodic heartbeat traffic, historical backlog or exactly-once guarantee in v1.
+
+PR 3 uses `fsnotify` subscriptions on the managed result directory and its existing
+ancestors, attaching parents before checking children. Directory creation/moves,
+watcher overflow/errors and closed channels cause reattachment and a scan;
+failed setup retries with cancellable 1-30 second exponential delay. Notifications
+coalesce by safe unit name for 100 ms. One upload worker retains only per-name
+latest IDs and retry deadlines, not historical payloads. A slow upload can delay
+other uploads, but never holds a publication gate or blocks desired-state polling.
+On retry it snapshots the then-current destination; if it disappeared, pending
+work is dropped. A completed old request may still succeed historically.
+Invalid local JSON/missing association waits for another event or recovery scan.
+See [protocol.md](protocol.md#upload-identity-and-exact-bytes) for the fixed UUID
+derivation, bounds and permanent/retryable status policy.
 
 ## 7. Service config and security
 
@@ -157,6 +172,6 @@ Log state transitions, poll/HTTP status codes, retry/backoff, per-unit publicati
 ## 9. Upstream compatibility blockers
 
 - Current `dsc-reconciler` source implements the locking contract above in `internal/reconcile/protection.go`, `files_linux.go` and `files_windows.go`, with the handle retained through `writer.Write`. Release/deployment availability and native sync-agent interoperability still require verification in later stages.
-- Rechecked at Registry `e443c3f925c0094d3b033e7ac9c8590297b8dbef`: `docs/api.md` and `internal/report/report.go` now accept client-defined configuration/parameter paths. The former hardcoded `managed/` restriction is fixed upstream, but deployed-version verification remains required before report integration. Never falsify the result envelope for older servers.
+- Rechecked at Registry `5a4ddb543afc103de3ad933922ed5f603f3ff656`: `docs/api.md` and `internal/report/report.go` accept client-defined configuration/parameter paths. The former hardcoded `managed/` restriction is fixed upstream, but deployed-version verification remains required before production integration. Never falsify the result envelope for older servers.
 - New server report-history behavior overrides older discussions that presumed 409 on an old content revision. `POST /v1/agent/reports` accepts old/deleted revisions and de-duplicates exact retries; see live Registry API documentation.
 - Registry's `internal/desired/json.go` currently permits Windows device stems. The sync client additionally rejects `con`, `prn`, `aux`, `nul`, `com1`-`com9` and `lpt1`-`lpt9`, including names with dot extensions, on both platforms. This stricter safety check is an explicit upstream contract discrepancy, not a rewritten or normalized server name.

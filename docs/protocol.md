@@ -107,7 +107,10 @@ lock is held. On Windows, ordinary delete-sharing violations retry; other errors
 (including ACL denial and access-denied metadata replacements) fail the
 collection and retry through normal polling backoff. The old ETag remains.
 Per-unit serialization covers template removal through final publication and
-will also cover report snapshot reads in PR 3.
+report snapshot reads. `Publisher.SnapshotResult` reuses the confined directory
+and no-follow file helpers, checks opened/path identities and file size/mtime
+before/after reading, and requires a regular installed template and valid revision.
+No HTTP operation runs inside this gate.
 
 Failure/process exit at an intermediate boundary leaves at most a partial
 installation and hidden staging files. The next successful 200 cleans abandoned
@@ -150,11 +153,78 @@ Content-Type: application/json
 - Unlike the original API, the current report-history API **accepts old or removed configuration content revisions**. The server's current status view filters reports by current desired revision.
 - The legacy `POST /v1/agent/configurations/{name}/report` exists with a slightly different wrapper and `204` on success. Use only if explicitly required by server compatibility; do not silently fall back on new-route errors.
 
+### Upload identity and exact bytes
+
+The fixed UUIDv5 namespace is `4e70e5f8-87c8-5e72-90bb-645fb9c79a04`.
+Its RFC 9562 name input is this concatenation, in order:
+
+1. Unsigned 32-bit big-endian byte length of the validated ASCII configuration name, followed by those name bytes.
+2. Unsigned 32-bit big-endian byte length of the canonical lowercase Registry revision UUID, followed by its ASCII bytes.
+3. The 32 raw bytes of SHA-256 over the **entire exact result file**, including any leading/trailing JSON whitespace or terminal newline.
+
+Apply standard UUIDv5: SHA-1 over the namespace's 16 network-order bytes and the
+above input, take the first 16 digest bytes, set version 5 and RFC variant bits,
+and format lowercase canonical hyphenated UUID text. This is identity generation,
+not authentication or an `inputHash` mapping. The namespace and encoding must
+remain fixed across releases. Golden vector: name `docker`, revision
+`77701b57-ddb9-4e7b-b235-b04ed87e3468`, file bytes `{"schemaVersion":1}` followed
+by one LF produce `8d9330d3-1b7e-5980-9256-dac0bfe18b18`.
+
+The wrapper is constructed once by directly appending the original file bytes as
+the `result` value; never pass it through `json.Marshal`, even as `RawMessage`
+(which would compact/re-escape it). The client owns this immutable request body.
+Registry trims whitespace outside the nested JSON value but preserves everything
+inside it. File whitespace changes intentionally produce a different upload ID.
+Exact retries/restarts of an unchanged file produce the same ID/body; different
+execution payloads produce different IDs without a persistent ledger.
+
+Results are bounded to 16 MiB minus 512 bytes of reserved wrapper space.
+The complete wrapper must also fit 16 MiB, Registry's default report limit.
+Validate UTF-8, complete object-shaped JSON, duplicate properties and nesting
+including the wrapper level, but leave envelope semantics and resource payloads
+to Registry. Never require an `inputHash`; input failures legitimately omit it.
+A stricter server limit can return `413`, which is not retried unchanged.
+
+### Report retry and watcher policy
+
+Only `201` and `200` succeed. `400` (invalid report), `409` (identity conflict),
+`413`, `415`, other nonretryable 4xx and unexpected 2xx/3xx are terminal for that
+unchanged upload ID in this process. Log only safe unit/status metadata; do not
+alter the body, generate another ID, or fall back to the legacy route.
+Startup may retry that file again because suppression is not persisted.
+
+Transport errors, timeouts, `401`/`403`, `408`, `429` and 5xx retry per unit using
+the same failure schedule as polling: 5 seconds doubling to 5 minutes, positive
+0-10% jitter, and `Retry-After` seconds/HTTP-date extending the wait up to 24 hours.
+Repeated notifications never shorten that deadline. At the next attempt,
+snapshot the latest file; newer bytes supersede older work and missing
+destinations discard it. Network calls never hold the publisher gate.
+An old in-flight snapshot retains its old revision even if inputs are removed.
+Receipts/error bodies are bounded-drained, never persisted or logged.
+
+`fsnotify` supplies native create/write/rename/remove hints, coalesced by name
+for 100 ms. Hidden temporary files and unrelated subtrees are ignored. Attach
+existing ancestor directories before inspecting children to handle absent roots
+and fast mkdir/publication; event paths use native comparison rules, including
+Windows case insensitivity. Scan once after attachment on startup, watcher
+failure/overflow/closure recovery, and directory creation/replacement. Failed
+watch setup retries with cancellable 1-30 second backoff. Stable invalid local
+JSON or missing/invalid revision metadata waits for another hint/scan; transient
+file/identity failures back off. There is no healthy periodic result scan.
+Neither observation nor upload modifies results, input files or ETags.
+An in-memory name/ID/deadline map and one in-flight request are not an outbox;
+missed intermediate executions cannot be recovered from the latest-result file.
+
 ## Compatibility check before integration
 
-Registry `e443c3f925c0094d3b033e7ac9c8590297b8dbef` now documents and implements
+Registry `5a4ddb543afc103de3ad933922ed5f603f3ff656` documents and implements
 client-defined envelope paths in `docs/api.md` and `internal/report/report.go`.
 `configuration` must be a nonempty string; optional/null `parameters` may be any
 string, including empty. The old hardcoded `managed/` restriction is no longer
-an upstream source blocker. Verify deployment of that change before PR 3/4
+an upstream source blocker. Verify deployment of that change before production
 integration; the client must never forge envelope paths for an older server.
+PR 3 also rechecked reconciler `d6010bf737dbbbfd56d69d98d1fc20132022c8dd`:
+`internal/dsc/result.go`, `internal/results/writer.go`, platform file helpers,
+and the protection retained through `writer.Write` in the reconciler. Tests
+use those envelope shapes and native filesystem behavior with mock HTTP; they
+do not execute DSC or establish deployed cross-service compatibility.

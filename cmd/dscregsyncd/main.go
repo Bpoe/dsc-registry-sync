@@ -15,6 +15,7 @@ import (
 	"github.com/Bpoe/dsc-registry-sync/internal/config"
 	"github.com/Bpoe/dsc-registry-sync/internal/publish"
 	"github.com/Bpoe/dsc-registry-sync/internal/registry"
+	"github.com/Bpoe/dsc-registry-sync/internal/results"
 )
 
 func main() {
@@ -61,8 +62,14 @@ func run(ctx context.Context, args []string, output io.Writer) int {
 	client := registry.NewClient(cfg.RegistryURL, key, time.Duration(cfg.RequestTimeoutSeconds)*time.Second)
 	defer client.Close()
 	publisher := publish.New(cfg.ConfigDir, cfg.ResultsDir, log)
-	log.Info("daemon started", "mode", "managed-publisher", "committed_etag_present", etag != "")
+	log.Info("daemon started", "mode", "managed-sync", "committed_etag_present", etag != "")
+	resultsStopped := make(chan struct{})
+	go func() {
+		defer close(resultsStopped)
+		results.New(publisher, client, cfg.ResultsDir, log).Run(ctx)
+	}()
 	poll(ctx, client, publisher, etag, time.Duration(cfg.PollFallbackSeconds)*time.Second, log, wait)
+	<-resultsStopped
 	log.Info("daemon stopped")
 	return 0
 }

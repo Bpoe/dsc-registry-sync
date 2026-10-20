@@ -1,4 +1,4 @@
-// Package registry implements the machine-scoped, read-only Registry client.
+// Package registry implements the machine-scoped Registry client.
 package registry
 
 import (
@@ -14,6 +14,7 @@ import (
 
 type Client struct {
 	endpoint string
+	reports  string
 	key      string
 	http     *http.Client
 }
@@ -25,6 +26,7 @@ func NewClient(origin, key string, timeout time.Duration) *Client {
 	transport.MaxResponseHeaderBytes = 64 << 10
 	return &Client{
 		endpoint: origin + "/v1/agent/configurations",
+		reports:  origin + "/v1/agent/reports",
 		key:      key,
 		http: &http.Client{
 			Transport: transport,
@@ -58,18 +60,11 @@ func (c *Client) Fetch(ctx context.Context, committedETag string) (Response, err
 	if committedETag != "" {
 		request.Header.Set("If-None-Match", committedETag)
 	}
-	res, err := c.http.Do(request)
+	res, err := c.do(request)
 	if err != nil {
-		// Transport errors can embed URLs, redirect targets or arbitrary text.
-		// Keep only classifications that are safe for routine logging.
-		if ctx.Err() != nil {
-			return Response{}, ctx.Err()
-		}
-		if errors.Is(err, context.DeadlineExceeded) {
-			return Response{}, errors.New("Registry request timed out")
-		}
-		return Response{}, errors.New("Registry transport failed (check connectivity and TLS trust)")
+		return Response{}, err
 	}
+
 	defer res.Body.Close()
 	response := Response{StatusCode: res.StatusCode, Header: res.Header}
 	switch res.StatusCode {
@@ -104,4 +99,19 @@ func (c *Client) Fetch(ctx context.Context, committedETag string) (Response, err
 	default:
 		return response, fmt.Errorf("Registry returned HTTP %d", res.StatusCode)
 	}
+}
+
+func (c *Client) do(request *http.Request) (*http.Response, error) {
+	res, err := c.http.Do(request)
+	if err == nil {
+		return res, nil
+	}
+	// Transport errors can embed URLs, redirect targets or arbitrary text.
+	if request.Context().Err() != nil {
+		return nil, request.Context().Err()
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return nil, errors.New("Registry request timed out")
+	}
+	return nil, errors.New("Registry transport failed (check connectivity and TLS trust)")
 }

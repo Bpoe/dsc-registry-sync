@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "configuration": "dscregsync/docker.json",
+  "operation": "test",
+  "parameters": "dscregsync/docker.parameters.json",
+  "inputHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "startedAt": "2026-10-18T12:00:00Z",
+  "finishedAt": "2026-10-18T12:00:00.005Z",
+  "durationMs": 5,
+  "outcome": "succeeded",
+  "exitCode": null,
+  "dscResult": { "hadErrors": false, "results": [{"inDesiredState":false}], "opaque": [1e+99, 123456789012345678901234567890, "\u003c", "<>&", "a\/b"] },
+  "error": null,
+  "stderr": ""
+}

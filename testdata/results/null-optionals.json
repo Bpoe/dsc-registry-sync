@@ -1,0 +1,1 @@
+{"schemaVersion":1,"configuration":"dscregsync/docker.json","operation":null,"parameters":null,"inputHash":null,"startedAt":"2026-10-18T12:00:00Z","finishedAt":"2026-10-18T12:00:00.005Z","durationMs":5,"outcome":"canceled","exitCode":null,"dscResult":null,"error":{"kind":"canceled","message":"private cancellation"},"stderr":null,"future":{"opaque":true}}

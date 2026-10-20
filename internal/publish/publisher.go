@@ -39,7 +39,7 @@ func New(configDir, resultsDir string, log *slog.Logger) *Publisher {
 	}
 }
 
-// WithUnit serializes publication with future result snapshot reads. Do not
+// WithUnit serializes publication with result snapshot reads. Do not
 // perform network I/O in action, or call Apply/WithUnit recursively from it.
 func (p *Publisher) WithUnit(ctx context.Context, name string, action func() error) error {
 	if !registry.ValidName(name) {

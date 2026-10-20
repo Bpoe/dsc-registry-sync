@@ -2,7 +2,7 @@
 
 `dscregsyncd` is a small, independent Go service that synchronizes DSC Registry desired-state configurations to an existing local `dscd` reconciler and uploads `dscd` results to DSC Registry.
 
-**Status:** PR 2 foreground managed publisher. The daemon validates configuration, authenticates, conditionally polls desired state and publishes managed inputs with revision/ETag state. It does **not** yet watch/upload results or install a native service. Those responsibilities below describe the eventual v1 service.
+**Status:** PR 3 foreground synchronizer. The daemon conditionally polls desired state, publishes managed inputs with revision/ETag state, watches completed local results and uploads them through Registry's history API. Native service installation and deployed cross-service integration remain PR 4 work.
 
 ## Responsibilities
 
@@ -44,10 +44,11 @@ Windows counterparts live under `%ProgramData%\dsc\` (including `config.d\dscreg
 
 `machine.etag` is an HTTP cache validator, **not** the integer machine configuration revision. Per-unit `.NAME.revision` contains the opaque per-configuration content revision; neither is a `dscd` execution hash.
 
-## Build and run the managed publisher
+## Build and run the synchronizer
 
-Use Go 1.27 or newer. The only external Go module is `golang.org/x/sys`,
-used for handle-relative Windows creation with private ACLs.
+Use Go 1.27 or newer. External Go modules are `golang.org/x/sys` for Windows
+handle-relative creation/private ACLs and `github.com/fsnotify/fsnotify` for
+native filesystem notifications (inotify on Linux, ReadDirectoryChangesW on Windows).
 
 ```sh
 go build -o dscregsyncd ./cmd/dscregsyncd
@@ -114,6 +115,30 @@ crash atomicity or a sudden-power-loss guarantee. After local out-of-band file
 loss, a 304 alone cannot repair the collection: invalidate the cache while the
 daemon is stopped or wait for a desired-state change.
 
+Results use an independent notification-driven loop. Startup and watcher-recovery
+scans cover files published before subscriptions were established. Missing result
+directories are observed through ancestor watches until they appear; no results
+directory or file is created by the watcher, and there is no periodic results
+polling loop. Duplicate create/write/rename notifications coalesce for 100 ms;
+only complete, confined `NAME.json.result.json` destinations are read.
+
+Snapshot reads share the publisher's per-unit gate, capturing exact result bytes
+with `.NAME.revision`. Upload HTTP never holds that gate. An already captured old
+report may finish after an update or removal, with its original revision.
+`inputHash`, optional/null fields, embedded paths and resource results are never
+rewritten or used to infer revision/compliance.
+
+The history API receives an immutable JSON wrapper containing the unmodified
+result. A documented [UUIDv5 derivation](docs/protocol.md#upload-identity-and-exact-bytes)
+keeps retries and process restarts idempotent. `201` and duplicate `200` both
+succeed. Invalid/conflicting reports (`400`/`409`) stop retrying unchanged content
+until restart; authentication, transport, rate-limit and server failures back off
+with `Retry-After`. A newer local result supersedes failed work at the next
+attempt. Only notification names, latest IDs and retry deadlines live in memory:
+there is no outbox, upload ledger or report-history queue. While offline, `dscd`
+continues locally, and intermediate executions may be lost. See the protocol for
+size limits, retry bounds and other HTTP statuses.
+
 ```sh
 go test ./...
 go vet ./...
@@ -131,6 +156,13 @@ permissions, path confinement, stale-inode rejection on Linux and Registry
 200/304/error-to-filesystem coverage. Windows symlink tests require the OS
 privilege to create symlinks. Tests using default paths can require an isolated
 `ProgramData` environment value if the real installation is inaccessible.
+Result tests cover real envelope shapes, null/absent fields, exact-byte uploads,
+stable UUIDs, restart deduplication, native notifications, coalescing, directory
+creation/replacement, watcher overflow/closure recovery, offline latest-only
+behavior, HTTP response policy, cancellation, concurrent atomic snapshots, and
+polling/publication while an old report upload is blocked. Fixtures under
+`testdata/results` follow the upstream schema; the null-optionals fixture also
+exercises Registry-permitted optional fields and an additive field.
 
 ## Design and implementation
 
@@ -144,6 +176,6 @@ privilege to create symlinks. Tests using default paths can require an isolated
 ## Cross-repository prerequisites
 
 1. `dsc-reconciler`: current upstream source implements per-configuration protection through result publication (Linux cooperative exclusive `flock`, Windows denial of write/delete sharing). PR 2 tests reproduce that OS handshake in separate processes without running DSC. A compatible deployed `dscd` and real cross-service interoperability remain required before v1 readiness.
-2. `dsc-registry`: the former hardcoded `managed/{name}.json` report validation is now removed in upstream `main` (rechecked at `e443c3f`). Verify the deployed Registry includes it before PR 3/4 report integration; never falsify an envelope to work around older servers.
+2. `dsc-registry`: the former hardcoded `managed/{name}.json` report validation is removed in upstream `main` (rechecked at `5a4ddb5`). Verify the deployed Registry includes the history API and path fix before production integration; never falsify an envelope to work around older servers.
 3. Treat current `dsc-registry/docs/api.md` and actual server behavior as the authority for machine GET and the newer `POST /v1/agent/reports` API, including history and deduplication.
 4. Registry's current name validator accepts Windows device stems such as `con` and `nul.txt`. This client rejects them on **both** platforms, in addition to the documented Registry stem grammar, rather than accepting a collection that cannot safely be published on Windows. Such a response fails validation in its entirety; upstream name alignment remains separate work.

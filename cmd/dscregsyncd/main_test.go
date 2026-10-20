@@ -267,7 +267,81 @@ func TestWaitCancellation(t *testing.T) {
 	if err := wait(ctx, time.Hour); err != context.Canceled {
 		t.Fatal("wait did not stop on cancellation")
 	}
+
 	if err := wait(context.Background(), time.Nanosecond); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestPollingContinuesDuringBlockedReportUpload(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Defaults()
+	cfg.ConfigDir = filepath.Join(root, "config.d")
+	cfg.ResultsDir = filepath.Join(root, "results.d")
+	cfg.APIKeyFile = filepath.Join(root, "key")
+	cfg.AllowInsecureLoopback = true
+	key := "dscm_" + rand.Text() + "." + rand.Text()
+	if err := os.WriteFile(cfg.APIKeyFile, []byte(key), 0600); err != nil {
+		t.Fatal(err)
+	}
+	log := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	p := publish.New(cfg.ConfigDir, cfg.ResultsDir, log)
+	c := &registry.Collection{Configurations: []registry.Configuration{{
+		Name: "docker", Revision: "11111111-1111-4111-8111-111111111111", Template: []byte("{}"),
+	}}}
+	if err := p.Apply(context.Background(), c, `"one"`); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "results", "input-failure.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(cfg.ResultsDir, "dscregsync"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg.ResultsDir, "dscregsync", "docker.json.result.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	uploadStarted, subsequentPoll := make(chan struct{}), make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/agent/reports":
+			_, _ = io.Copy(io.Discard, r.Body)
+			close(uploadStarted)
+			<-r.Context().Done()
+		case "/v1/agent/configurations":
+			select {
+			case <-uploadStarted:
+				close(subsequentPoll)
+				cancel()
+			default:
+			}
+			w.Header().Set("Cache-Control", "private, max-age=5")
+			w.WriteHeader(304)
+		default:
+			t.Error("unexpected endpoint")
+		}
+	}))
+	defer server.Close()
+	cfg.RegistryURL = server.URL
+	configData, _ := json.Marshal(cfg)
+	path := filepath.Join(root, "service.json")
+	if err := os.WriteFile(path, configData, 0600); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshot(t, root)
+	var logs bytes.Buffer
+	if code := run(ctx, []string{"-config", path}, &logs); code != 0 {
+		t.Fatal("daemon failed")
+	}
+	select {
+	case <-subsequentPoll:
+	default:
+		t.Fatal("report I/O blocked conditional polling")
+	}
+	if !reflect.DeepEqual(before, snapshot(t, root)) {
+		t.Fatal("upload outage modified cached desired state/results")
 	}
 }
