@@ -158,4 +158,4 @@ jobs:
         run: |
           cat artifacts/packages-*/SHA256SUMS > artifacts/SHA256SUMS
           gh release create "$VERSION" artifacts/packages-Linux/*.deb artifacts/packages-Linux/*.rpm \
-            artifacts/packages-Windows/*.msi artifacts/SHA256SUMS --verify-tag --generate-notes
+            artifacts/packages-Windows/*.msi artifacts/SHA256SUMS --verify-tag --generate-notes --draft
