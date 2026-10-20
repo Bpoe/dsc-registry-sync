@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Bpoe/dsc-registry-sync/internal/config"
+	"github.com/Bpoe/dsc-registry-sync/internal/publish"
 	"github.com/Bpoe/dsc-registry-sync/internal/registry"
 )
 
@@ -59,13 +60,14 @@ func run(ctx context.Context, args []string, output io.Writer) int {
 	}
 	client := registry.NewClient(cfg.RegistryURL, key, time.Duration(cfg.RequestTimeoutSeconds)*time.Second)
 	defer client.Close()
-	log.Info("daemon started", "mode", "read-only", "committed_etag_present", etag != "")
-	poll(ctx, client, etag, time.Duration(cfg.PollFallbackSeconds)*time.Second, log, wait)
+	publisher := publish.New(cfg.ConfigDir, cfg.ResultsDir, log)
+	log.Info("daemon started", "mode", "managed-publisher", "committed_etag_present", etag != "")
+	poll(ctx, client, publisher, etag, time.Duration(cfg.PollFallbackSeconds)*time.Second, log, wait)
 	log.Info("daemon stopped")
 	return 0
 }
 
-func poll(ctx context.Context, client *registry.Client, etag string, fallback time.Duration,
+func poll(ctx context.Context, client *registry.Client, publisher *publish.Publisher, etag string, fallback time.Duration,
 	log *slog.Logger, sleep func(context.Context, time.Duration) error,
 ) {
 	schedule := registry.Schedule{Fallback: fallback}
@@ -74,19 +76,26 @@ func poll(ctx context.Context, client *registry.Client, etag string, fallback ti
 		if ctx.Err() != nil {
 			return
 		}
+		if err == nil && response.Collection != nil {
+			err = publisher.Apply(ctx, response.Collection, response.ETag)
+			if err == nil {
+				etag = response.ETag
+			}
+		}
+		if ctx.Err() != nil {
+			return
+		}
 		delay := schedule.Next(response.Header, err != nil, time.Now(), rand.Float64())
 		switch {
 		case err != nil:
-			log.Warn("desired-state poll failed", "status", response.StatusCode, "error", err, "retry_in", delay)
+			log.Warn("desired-state synchronization failed", "status", response.StatusCode, "error", err, "retry_in", delay)
 		case response.Collection == nil:
 			log.Info("desired state unchanged", "status", response.StatusCode, "next_poll_in", delay)
 		default:
-			log.Info("desired-state collection validated; publication deferred",
+			log.Info("desired-state collection committed",
 				"status", response.StatusCode, "configuration_count", len(response.Collection.Configurations),
 				"next_poll_in", delay)
 		}
-		// Do not promote a received ETag, even in memory. Only PR 2's successful
-		// collection publication can commit a validator for subsequent polls.
 		if sleep(ctx, delay) != nil {
 			return
 		}

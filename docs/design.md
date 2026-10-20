@@ -1,6 +1,6 @@
 # `dscregsyncd` — v1 architecture and behavior
 
-**Status:** agreed v1 design; PR 1 implements read-only foreground polling only. Publication, result upload and native service deployment remain staged work. **Date:** 2026-10-19.
+**Status:** PRs 1-2 implement foreground polling and managed publication/revision state. Result upload and native service deployment remain staged work. **Date:** 2026-10-19.
 
 `dscregsyncd` is an independent, small Go machine-side synchronization service for DSC Registry. It is neither an execution engine nor a replacement for [`dscd`](https://github.com/Bpoe/dsc-reconciler). It runs on Linux and Windows and never invokes the DSC executable or imports Registry's server internals.
 
@@ -65,11 +65,11 @@ No local state DB, extra lock file, saved `inputHash`, template/parameters hashe
 
 The Registry's monotonically increasing `configurationRevision` integer appears in the response, but no separate persisted copy is needed: ETag carries the collection validator. Individual `revision` UUIDs are persisted in per-unit files.
 
-**PR 1 boundary:** only read the committed validator at startup and retrieve and
-validate collections. Do not promote a response's ETag in memory or on disk.
-There is no publisher or local desired-state mutation yet. See
-[protocol.md](protocol.md#pr-1-client-validation-and-poll-policy) for concrete
-validation limits and retry bounds.
+**PR 2 boundary:** the publisher now applies complete validated collections and
+commits the ETag before the poller promotes it in memory. HTTP failures and 304s
+never invoke the publisher. Result watching/upload and service packaging remain
+deferred. See [protocol.md](protocol.md#client-validation-and-poll-policy) for
+concrete validation limits and retry bounds.
 
 ## 5. Update/delete and `dscd` coordination
 
@@ -82,6 +82,26 @@ The configuration file itself is the synchronization object. `dscd` holds protec
 - On Linux, a lock on a just-unlinked inode does not protect the new pathname: publication order, `dscd`'s post-lock file-identity check and the protected-result contract are the guarantees. Never rely on old-inode locking to serialize reads of a replacement file.
 - Missing files or partially applied updates are acceptable; the next full collection response can republish them. No rollback, journal or transaction-marker protocol. Do not claim strict two-file crash atomicity. Stage in same filesystem; publish each individual file by same-directory atomic rename.
 - Do not perform unsafe path traversal, operate through symlinks, or alter directories outside `dscregsync/`.
+
+The implementation confines operations with `os.Root`, rejects nonregular
+managed entries, and verifies managed-directory identity. Administrator-supplied
+roots/ancestors must be trusted and writable by only the intended owners.
+Unexpected entries in the exclusively owned input directory fail application;
+only recognized unit artifacts and agent staging files are removed. Orphan
+parameters, revision files and results participate in authoritative removal.
+The result directory is reopened after protected configuration deletion because
+an in-flight `dscd` may have created it while the publisher waited for protection.
+
+New managed directories/files have private permissions (Linux 0700/0600;
+Windows protected ACLs for the service identity, SYSTEM and Administrators).
+Windows applies ACLs at handle-relative creation, not through a later path-based
+permission update. Existing roots and directories retain their permissions.
+Run both processes with compatible identities. Staged files are flushed and
+closed before rename. Linux flushes changed result directories and the input
+directory before the ETag commit point. Windows has no portable directory
+fsync; neither platform promises a multi-file power-loss transaction.
+`Publisher.WithUnit` is the shared synchronization entry point for PR 3's
+revision/result snapshot; no uploader or watcher is implemented in PR 2.
 
 **Invariant:** A result of the previous installed unit must not be uploaded under the new content revision. `dscd` must finish result publication before unlocking, the client removes old results before publishing the new configuration, and local update/read handlers must be serialized by unit.
 
@@ -115,9 +135,10 @@ Prefer JSON for the service config to avoid adding YAML purely for service confi
 The API key is stored **outside** this JSON file and never logged. Linux: root-owned restrictive key file (0600) and protected parent directory. Windows: ACL-restricted to service identity/SYSTEM/Administrators; a stronger DPAPI-backed provider can be revisited if needed, but is not a prerequisite for v1. HTTPS is required except explicitly configured loopback development. Use OS trust roots and normal certificate validation; no `insecureSkipVerify` option. Fail clearly on invalid URL/path/configuration, malicious names, permission failures or inability to establish exclusive ownership of the managed tree.
 
 The loopback development opt-in is `allowInsecureLoopback` (default `false`).
-It permits HTTP only for `localhost` or literal loopback addresses. PR 1 validates
-configuration and reads files without modifying permissions or claiming managed
-tree ownership; publisher ownership and deployment hardening belong to later PRs.
+It permits HTTP only for `localhost` or literal loopback addresses. The foreground
+publisher assumes one daemon owns the managed input tree; it does not implement
+multi-process leader election or lock files. Private new-file permissions are
+implemented; installation/root ownership and deployment hardening remain PR 4 work.
 
 Log state transitions, poll/HTTP status codes, retry/backoff, per-unit publication success/failure, and report-upload outcome via structured logging. Do not log API keys, JSON template/parameter bodies, raw `dscResult`, stderr or any other potentially secret material. Respect cancellation and timeouts. Independent restarts are supported. Separate Windows service and Linux systemd packaging follow `dsc-reconciler`'s platform patterns, not its binary/package identity.
 
@@ -136,6 +157,6 @@ Log state transitions, poll/HTTP status codes, retry/backoff, per-unit publicati
 ## 9. Upstream compatibility blockers
 
 - Current `dsc-reconciler` source implements the locking contract above in `internal/reconcile/protection.go`, `files_linux.go` and `files_windows.go`, with the handle retained through `writer.Write`. Release/deployment availability and native sync-agent interoperability still require verification in later stages.
-- As checked on 2026-10-19, `dsc-registry/docs/api.md` and `internal/report/report.go` still require `result.configuration == managed/{name}.json` and analogous `parameters` path even though this sync agent emits `dscregsync/{name}.json`. An earlier separately scoped fix was requested to remove path-specific validation; **verify that change has merged into the deployed API** before claiming integration compatibility. Do not disguise this by falsifying the result envelope or editing dscd's `configuration` field.
+- Rechecked at Registry `e443c3f925c0094d3b033e7ac9c8590297b8dbef`: `docs/api.md` and `internal/report/report.go` now accept client-defined configuration/parameter paths. The former hardcoded `managed/` restriction is fixed upstream, but deployed-version verification remains required before report integration. Never falsify the result envelope for older servers.
 - New server report-history behavior overrides older discussions that presumed 409 on an old content revision. `POST /v1/agent/reports` accepts old/deleted revisions and de-duplicates exact retries; see live Registry API documentation.
 - Registry's `internal/desired/json.go` currently permits Windows device stems. The sync client additionally rejects `con`, `prn`, `aux`, `nul`, `com1`-`com9` and `lpt1`-`lpt9`, including names with dot extensions, on both platforms. This stricter safety check is an explicit upstream contract discrepancy, not a rewritten or normalized server name.

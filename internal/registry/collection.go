@@ -26,6 +26,21 @@ type Collection struct {
 	Configurations        []Configuration `json:"configurations"`
 }
 
+// Validate also protects callers constructing collections without the HTTP client.
+func (c *Collection) Validate() error {
+	if c == nil {
+		return errors.New("missing desired-state collection")
+	}
+	var data bytes.Buffer
+	encoder := json.NewEncoder(&data)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(c); err != nil {
+		return errors.New("invalid desired-state collection")
+	}
+	_, err := decodeCollection(bytes.TrimSuffix(data.Bytes(), []byte{'\n'}))
+	return err
+}
+
 func decodeCollection(data []byte) (*Collection, error) {
 	invalid := errors.New("invalid desired-state collection")
 	if len(data) > MaxCollectionBytes || jsondoc.Validate(data) != nil {
