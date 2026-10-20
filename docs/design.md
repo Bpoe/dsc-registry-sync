@@ -1,6 +1,6 @@
 # `dscregsyncd` — v1 architecture and behavior
 
-**Status:** agreed design baseline; implementation not yet started. **Date:** 2026-10-19.
+**Status:** agreed v1 design; PR 1 implements read-only foreground polling only. Publication, result upload and native service deployment remain staged work. **Date:** 2026-10-19.
 
 `dscregsyncd` is an independent, small Go machine-side synchronization service for DSC Registry. It is neither an execution engine nor a replacement for [`dscd`](https://github.com/Bpoe/dsc-reconciler). It runs on Linux and Windows and never invokes the DSC executable or imports Registry's server internals.
 
@@ -39,7 +39,7 @@ Not in v1: remote commands, installing DSC itself, administering `dscd`, cloud d
 | Template | `/etc/dsc/config.d/dscregsync/docker.json` | `%ProgramData%\dsc\config.d\dscregsync\docker.json` |
 | Parameters | `.../dscregsync/docker.parameters.json` | `...\dscregsync\docker.parameters.json` |
 | Per-unit revision | `.../dscregsync/.docker.revision` | `...\dscregsync\.docker.revision` |
-| Machine HTTP ETag | `/etc/dsc/machine.etag` | `%ProgramData%\dsc\machine.etag` |
+| Machine HTTP ETag | `/etc/dsc/config.d/dscregsync/machine.etag` | `%ProgramData%\dsc\config.d\dscregsync\machine.etag` |
 | `dscd` result | `/var/lib/dsc/results.d/dscregsync/docker.json.result.json` | `%ProgramData%\dsc\results.d\dscregsync\docker.json.result.json` |
 
 `configDir` and `resultsDir` identify `dscd` root directories; the service always derives the private `dscregsync` subdirectories beneath them. The Registry exposes one flat list of configuration names, not arbitrary subdirectories. Each name is a lowercase safe stem validated before forming file paths.
@@ -64,6 +64,12 @@ No local state DB, extra lock file, saved `inputHash`, template/parameters hashe
 - Do **not** interpret an HTTP error, invalid/partial response, authentication failure, watcher error, or 304 as an empty desired-state collection. A valid 200 with `configurations: []` is an authoritative empty collection and removes only agent-owned units.
 
 The Registry's monotonically increasing `configurationRevision` integer appears in the response, but no separate persisted copy is needed: ETag carries the collection validator. Individual `revision` UUIDs are persisted in per-unit files.
+
+**PR 1 boundary:** only read the committed validator at startup and retrieve and
+validate collections. Do not promote a response's ETag in memory or on disk.
+There is no publisher or local desired-state mutation yet. See
+[protocol.md](protocol.md#pr-1-client-validation-and-poll-policy) for concrete
+validation limits and retry bounds.
 
 ## 5. Update/delete and `dscd` coordination
 
@@ -108,6 +114,11 @@ Prefer JSON for the service config to avoid adding YAML purely for service confi
 
 The API key is stored **outside** this JSON file and never logged. Linux: root-owned restrictive key file (0600) and protected parent directory. Windows: ACL-restricted to service identity/SYSTEM/Administrators; a stronger DPAPI-backed provider can be revisited if needed, but is not a prerequisite for v1. HTTPS is required except explicitly configured loopback development. Use OS trust roots and normal certificate validation; no `insecureSkipVerify` option. Fail clearly on invalid URL/path/configuration, malicious names, permission failures or inability to establish exclusive ownership of the managed tree.
 
+The loopback development opt-in is `allowInsecureLoopback` (default `false`).
+It permits HTTP only for `localhost` or literal loopback addresses. PR 1 validates
+configuration and reads files without modifying permissions or claiming managed
+tree ownership; publisher ownership and deployment hardening belong to later PRs.
+
 Log state transitions, poll/HTTP status codes, retry/backoff, per-unit publication success/failure, and report-upload outcome via structured logging. Do not log API keys, JSON template/parameter bodies, raw `dscResult`, stderr or any other potentially secret material. Respect cancellation and timeouts. Independent restarts are supported. Separate Windows service and Linux systemd packaging follow `dsc-reconciler`'s platform patterns, not its binary/package identity.
 
 ## 8. Limitations and acceptance scenarios
@@ -124,6 +135,7 @@ Log state transitions, poll/HTTP status codes, retry/backoff, per-unit publicati
 
 ## 9. Upstream compatibility blockers
 
-- `dsc-reconciler` must implement and release the locking contract above (or tests must explicitly skip until available).
+- Current `dsc-reconciler` source implements the locking contract above in `internal/reconcile/protection.go`, `files_linux.go` and `files_windows.go`, with the handle retained through `writer.Write`. Release/deployment availability and native sync-agent interoperability still require verification in later stages.
 - As checked on 2026-10-19, `dsc-registry/docs/api.md` and `internal/report/report.go` still require `result.configuration == managed/{name}.json` and analogous `parameters` path even though this sync agent emits `dscregsync/{name}.json`. An earlier separately scoped fix was requested to remove path-specific validation; **verify that change has merged into the deployed API** before claiming integration compatibility. Do not disguise this by falsifying the result envelope or editing dscd's `configuration` field.
 - New server report-history behavior overrides older discussions that presumed 409 on an old content revision. `POST /v1/agent/reports` accepts old/deleted revisions and de-duplicates exact retries; see live Registry API documentation.
+- Registry's `internal/desired/json.go` currently permits Windows device stems. The sync client additionally rejects `con`, `prn`, `aux`, `nul`, `com1`-`com9` and `lpt1`-`lpt9`, including names with dot extensions, on both platforms. This stricter safety check is an explicit upstream contract discrepancy, not a rewritten or normalized server name.
