@@ -1,0 +1,43 @@
+name: Go
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Check formatting
+        shell: pwsh
+        run: |
+          $files = @(git ls-files '*.go')
+          $unformatted = @(gofmt -l $files)
+          if ($LASTEXITCODE -ne 0 -or $unformatted.Count -ne 0) {
+            $unformatted
+            throw 'Go sources are not formatted'
+          }
+      - run: go test ./...
+      - run: go vet ./...
+      - run: go test -race ./...
+      - name: Build native daemon
+        run: go build ./cmd/dscregsyncd
+      - name: Cross-build Windows daemon
+        if: runner.os == 'Linux'
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: go build -o dscregsyncd.exe ./cmd/dscregsyncd

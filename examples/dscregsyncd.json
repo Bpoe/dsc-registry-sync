@@ -4,5 +4,6 @@
   "configDir": "/etc/dsc/config.d",
   "resultsDir": "/var/lib/dsc/results.d",
   "requestTimeoutSeconds": 30,
-  "pollFallbackSeconds": 300
+  "pollFallbackSeconds": 300,
+  "allowInsecureLoopback": false
 }
