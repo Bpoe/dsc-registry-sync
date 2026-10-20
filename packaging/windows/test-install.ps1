@@ -33,7 +33,7 @@ function Get-PackageVersion([string] $Path) {
 }
 $expectedVersion = Get-PackageVersion $msi
 $acl = [Security.AccessControl.DirectorySecurity]::new()
-$acl.SetSecurityDescriptorSddlForm('O:SYG:SYD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)')
+$acl.SetSecurityDescriptorSddlForm('O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)')
 [IO.FileSystemAclExtensions]::Create([IO.DirectoryInfo]::new($data), $acl)
 $inputDir = Join-Path $data 'config.d\dscregsync'
 $resultsDir = Join-Path $data 'results.d\dscregsync'

@@ -82,9 +82,13 @@ directory, PowerShell 7 can create it with the ACL already restricted:
 $data = Join-Path $env:ProgramData 'dsc'
 if (Test-Path -LiteralPath $data) { throw 'Inspect the existing shared DSC directory before provisioning' }
 $acl = [Security.AccessControl.DirectorySecurity]::new()
-$acl.SetSecurityDescriptorSddlForm('O:SYG:SYD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)')
+$acl.SetSecurityDescriptorSddlForm('O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)')
 [IO.FileSystemAclExtensions]::Create([IO.DirectoryInfo]::new($data), $acl)
 ```
+
+The owner is Administrators, which an elevated administrator can assign without
+enabling restore privileges to impersonate SYSTEM ownership. Access remains
+restricted to SYSTEM and Administrators.
 
 If `dscd` already created the directory, inspect its owner, ACL and ancestors;
 use that protected directory instead of rerunning the creation example. Restrict
