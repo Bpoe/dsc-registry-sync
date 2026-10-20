@@ -21,11 +21,11 @@ function Get-PackageVersion([string] $Path) {
     $installer = New-Object -ComObject WindowsInstaller.Installer
     $database = $installer.OpenDatabase($Path, 0)
     $view = $database.OpenView('SELECT `Value` FROM `Property` WHERE `Property` = ''ProductVersion''')
-    $view.Execute()
+    $view.Execute() | Out-Null
     $record = $view.Fetch()
     try { return 'v' + $record.StringData(1) }
     finally {
-        $view.Close()
+        $view.Close() | Out-Null
         foreach ($item in @($record, $view, $database, $installer)) {
             [Runtime.InteropServices.Marshal]::FinalReleaseComObject($item) | Out-Null
         }
