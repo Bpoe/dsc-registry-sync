@@ -9,6 +9,9 @@ import (
 
 const maxETagBytes = 4096
 
+// ValidETag reports whether a single bounded HTTP validator can be committed.
+func ValidETag(tag string) bool { return validETag(tag) }
+
 func validETag(tag string) bool {
 	if len(tag) > maxETagBytes {
 		return false

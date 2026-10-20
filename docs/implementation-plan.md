@@ -14,6 +14,12 @@ Do **not** implement everything in one PR. A narrow PR sequence keeps platform s
 
 ## PR 2 — local managed publisher and revision state
 
+**Implemented in this stage:** foreground Registry-to-filesystem application,
+private staging/permissions, cooperative platform protection, revision state
+and last-step ETag commits. Runtime tests reproduce the upstream protection
+contract in separate processes and exercise abrupt exit/restart boundaries.
+Real deployed-service integration remains PR 4; no PR 3 watcher/uploader is included.
+
 - Implement `config.d/dscregsync/{name}.json`, optional `.parameters.json`, `.NAME.revision`, and committed `machine.etag` behavior as in design.
 - Validate full 200 response before modifying files; install only changed/missing units, delete absent managed units only after complete response.
 - Implement safe same-directory staging/renames, file permissions, path validation, stale result removal, Linux cooperative locking and Windows sharing-violation retry.

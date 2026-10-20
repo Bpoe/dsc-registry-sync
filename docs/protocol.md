@@ -17,7 +17,7 @@ If-None-Match: "machine-<uuid>-config-<revision>"
 - `304`: no JSON payload; Cache-Control may still define next polling interval; do not change local configuration files.
 - Only trust a complete valid `200` as the authoritative set of desired names. Never delete because of error/partial JSON/304.
 
-### PR 1 client validation and poll policy
+### Client validation and poll policy
 
 - Read `configDir/dscregsync/machine.etag` once at startup without creating it.
   Preserve the validator bytes, including quotes and a weak `W/` prefix, trimming
@@ -37,8 +37,9 @@ If-None-Match: "machine-<uuid>-config-<revision>"
   Registry currently permits these; upstream alignment is needed. The client
   fails the entire response, never sanitizes a name or skips a bad unit.
 - A 304 has no collection and cannot replace the committed validator. An
-  unsolicited 304 without a request validator is an error. In PR 1 even a
-  validated 200 cannot advance the validator, since publication is not implemented.
+  unsolicited 304 without a request validator is an error. A validated 200
+  advances the validator only after successful complete publication and the
+  final on-disk ETag rename.
 - On successful 200/304, use `Cache-Control: max-age` (including quoted integers),
   falling back to 300 seconds or `pollFallbackSeconds` if missing or malformed.
   Normal delays are bounded to 5 seconds-1 hour. `no-cache`/`no-store` select
@@ -88,8 +89,32 @@ Windows opens with only `FILE_SHARE_READ`. The reconciler closes the protected
 handle after result publication. The writer mirrors the relative configuration
 path and appends `.result.json`, using same-directory temporary replacement.
 This source check is not a substitute for later native interoperability tests.
+PR 2 rechecked reconciler source at
+`d6010bf737dbbbfd56d69d98d1fc20132022c8dd` and tests the same protection in
+separate helper processes on both platforms, without invoking DSC.
 
 On update/removal `dscregsyncd` removes the **old template first**, only after respecting OS-specific protection. It then removes the old result and parameters; for an update it publishes the new parameters if present, writes `.docker.revision`, then atomically publishes `docker.json` last. Complete the whole 200 collection before writing `machine.etag`.
+
+The publisher stages compact, sorted-key JSON using exact JSON numbers (no
+floating-point conversion), with same-directory hidden private files. Absent
+or null parameters produce no sidecar; `{}` produces a sidecar. Unchanged
+revisions skip publication only if the template/revision are regular files and
+parameter presence matches. Existing file contents are not hashed.
+
+Flock and sharing contention retry with cancellable 25-250 ms delays. On Linux,
+the opened configuration must still identify the pathname while its exclusive
+lock is held. On Windows, ordinary delete-sharing violations retry; other errors
+(including ACL denial and access-denied metadata replacements) fail the
+collection and retry through normal polling backoff. The old ETag remains.
+Per-unit serialization covers template removal through final publication and
+will also cover report snapshot reads in PR 3.
+
+Failure/process exit at an intermediate boundary leaves at most a partial
+installation and hidden staging files. The next successful 200 cleans abandoned
+agent staging files and repairs missing units without undoing completed units.
+Successful units and their new results survive collection retries.
+The ETag rename is the final commit point. No persistent marker, saved hash,
+backup, lock file or rollback protocol is used.
 
 ## Machine report POST
 
@@ -127,4 +152,9 @@ Content-Type: application/json
 
 ## Compatibility check before integration
 
-The current server documentation **and the `internal/report/report.go` implementation** still contain hardcoded `managed/` envelope path validation (verified 2026-10-19). It must be removed as requested in a separate Registry change. Accepting arbitrary valid `dscd` configuration paths is part of server/client decoupling; client must not forge a different path to work around it.
+Registry `e443c3f925c0094d3b033e7ac9c8590297b8dbef` now documents and implements
+client-defined envelope paths in `docs/api.md` and `internal/report/report.go`.
+`configuration` must be a nonempty string; optional/null `parameters` may be any
+string, including empty. The old hardcoded `managed/` restriction is no longer
+an upstream source blocker. Verify deployment of that change before PR 3/4
+integration; the client must never forge envelope paths for an older server.
