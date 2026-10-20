@@ -121,6 +121,7 @@ jobs:
           docker run --rm -e DSCREGSYNC_DISPOSABLE=1 -e VERSION \
             -v "$PWD/dist:/packages:ro" -v "$RUNNER_TEMP/baseline:/baseline:ro" \
             -v "$PWD/packaging/linux:/tests:ro" fedora:43 bash -euc '
+              dnf install -y systemd
               args=(/baseline/dscregsyncd-0.0.0-1.x86_64.rpm)
               if [[ "${VERSION#v}" != 0.0.0 ]]; then args+=("/packages/dscregsyncd-${VERSION#v}-1.x86_64.rpm"); fi
               bash /tests/test-install.sh "${args[@]}"

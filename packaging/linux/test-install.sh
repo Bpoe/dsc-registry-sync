@@ -31,6 +31,11 @@ remove_package() {
     if [[ "$package" == *.deb ]]; then dpkg --purge dscregsyncd; else rpm -e dscregsyncd; fi
 }
 cleanup() {
+    status=$?
+    if [[ "$status" != 0 && -d /run/systemd/system ]]; then
+        systemctl show dscregsyncd --property=ActiveState,SubState,Result,NRestarts
+        journalctl -u dscregsyncd --no-pager -n 80
+    fi
     if [[ "$installed" == 1 ]]; then remove_package; fi
     rm -f "$manifest" "${files[@]}"
     rmdir /etc/dsc/config.d/dscregsync /var/lib/dsc/results.d/dscregsync
@@ -58,6 +63,10 @@ check() {
         systemctl is-active --quiet dscregsyncd
         systemctl stop dscregsyncd
         ! systemctl is-active --quiet dscregsyncd
+        [[ "$(systemctl show dscregsyncd --property=Result --value)" == success ]]
+        [[ "$(systemctl show dscregsyncd --property=NRestarts --value)" == 0 ]]
+        # Separate clean lifecycle scenarios must not share systemd's start counter.
+        systemctl reset-failed dscregsyncd
     fi
     sha256sum --check --status "$manifest"
 }

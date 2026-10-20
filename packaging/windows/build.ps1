@@ -22,8 +22,9 @@ try {
     $env:CGO_ENABLED = '0'
     go build -trimpath -ldflags "-X main.version=$Version" -o $binary .\cmd\dscregsyncd
     if ($LASTEXITCODE -ne 0) { throw 'Go build failed.' }
+    # MSBuild imports VERSION from the environment; NuGet needs an unprefixed version.
     dotnet build "$PSScriptRoot\msi\dscregsyncd.wixproj" --configuration Release --nologo `
-        "-p:ProductVersion=$productVersion" "-p:BinaryPath=$binary" `
+        "-p:Version=$productVersion" "-p:ProductVersion=$productVersion" "-p:BinaryPath=$binary" `
         "-p:BaseIntermediateOutputPath=$stage\obj\" "-p:IntermediateOutputPath=$stage\obj\" `
         "-p:MSBuildProjectExtensionsPath=$stage\obj\" "-p:OutputPath=$stage\output\"
     if ($LASTEXITCODE -ne 0) { throw 'WiX build failed.' }
