@@ -176,7 +176,9 @@ elevation and `-Disposable`. **Use only disposable hosts.** Both refuse existing
 installations, seed credentials/managed data, check offline service restarts,
 repair/reinstall, optional upgrade and retention after uninstall. The Windows
 test also checks restricted ACLs, recovery registration and redacted lifecycle
-events. Linux CI checks DEB under real systemd and RPM under Fedora without
+events. Independent Linux scenarios reset systemd's start counter only after a
+verified successful stop with no automatic restarts; production rate limiting
+is unchanged. Linux CI checks DEB under real systemd and RPM under Fedora without
 systemd; the RPM test is not evidence of native systemd service operation.
 
 The opt-in Go test uses real binaries, a disposable SQLite Registry and real DSC:
@@ -211,8 +213,14 @@ Its Windows device-stem naming discrepancy remains documented in the protocol.
 Local evidence for this stage: Windows unit tests/vet, real Windows roundtrip
 with both peers and DSC, MSI build/validation, Linux and Windows binary builds,
 and DEB/RPM payload creation. Local race tests are blocked by the missing C
-compiler; Linux runtime is unavailable. Package lifecycle scripts and the new
-CI jobs have not been executed on this shared workstation.
+compiler; Linux runtime is unavailable on this shared workstation.
+
+[Deployment CI run 39366297559](https://github.com/Bpoe/dsc-registry-sync/actions/runs/39366297559)
+passed native Linux/Windows Go checks (including race tests), real-peer
+roundtrips, DEB/systemd lifecycle, Fedora RPM lifecycle and Windows MSI
+install/repair/upgrade/uninstall. This supplies native CI evidence beyond the
+local workstation's limits, but does not establish whole-machine reboot or
+compatibility with different deployed peer versions.
 
 Before declaring v1 ready, require green native Linux/Windows CI, exercise the
 packages against the intended deployed Registry/reconciler releases and test a

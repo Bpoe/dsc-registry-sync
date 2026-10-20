@@ -52,9 +52,9 @@ bounded shutdown, systemd hardening, non-destructive DEB/RPM/MSI sources,
 disposable-host repair/upgrade/uninstall checks, release gating, operations
 documentation and an opt-in real Registry/reconciler/DSC roundtrip with a
 controlled resource barrier proving protection interoperability.
-Windows unit/vet and real peer runtime checks passed locally; MSI and Linux
-package payloads build. Native Linux runtime, package lifecycle CI and real
-machine reboot acceptance remain outstanding. See [deployment.md](deployment.md)
+Windows unit/vet and real peer runtime checks passed locally. Native Linux and
+Windows checks, real-peer roundtrips and package lifecycle jobs now pass in CI.
+Target-deployment and real machine reboot acceptance remain outstanding. See [deployment.md](deployment.md)
 for exact evidence, commands and release gates; do not declare v1 ready yet.
 
 - Add Linux `.deb`/`.rpm` with systemd unit and appropriate permissions, native Windows service/MSI following `dsc-reconciler` conventions. Service installation must not overwrite existing machine keys or managed input data.

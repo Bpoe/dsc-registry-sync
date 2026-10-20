@@ -4,9 +4,9 @@
 
 **Status:** Stage 4 adds native Windows service support, systemd/DEB/RPM/MSI
 packaging, disposable-host installation checks and real cross-service integration
-coverage. The complete roundtrip, including real `dscd` protection, has run on
-Windows. Linux runtime, installed-service lifecycle and actual reboot acceptance
-remain release gates; this is **not yet a v1 production-readiness declaration**.
+coverage. Native Linux/Windows checks, real `dscd` protection roundtrips and
+package lifecycle jobs pass in CI. Actual reboot and target-deployment acceptance
+remain required; this is **not yet a v1 production-readiness declaration**.
 
 ## Responsibilities
 
@@ -192,7 +192,7 @@ exercises Registry-permitted optional fields and an additive field.
 
 ## Cross-repository prerequisites
 
-1. `dsc-reconciler`: current upstream source implements per-configuration protection through result publication (Linux cooperative exclusive `flock`, Windows denial of write/delete sharing). PR 2 tests reproduce that OS handshake in separate processes. Stage 4's opt-in test also holds a real DSC resource request inside real `dscd` while publication waits. Windows has passed; Linux and compatible deployed versions remain required before v1 readiness.
+1. `dsc-reconciler`: current upstream source implements per-configuration protection through result publication (Linux cooperative exclusive `flock`, Windows denial of write/delete sharing). PR 2 tests reproduce that OS handshake in separate processes. Stage 4's opt-in test also holds a real DSC resource request inside real `dscd` while publication waits. Linux and Windows CI pass; compatible deployed versions and reboot acceptance remain required before v1 readiness.
 2. `dsc-registry`: the former hardcoded `managed/{name}.json` report validation is removed in upstream `main` (rechecked at `5a4ddb5` and exercised with real relative-path reports on Windows). Verify the deployed Registry includes the history API and path fix; never falsify an envelope to work around older servers.
 3. Treat current `dsc-registry/docs/api.md` and actual server behavior as the authority for machine GET and the newer `POST /v1/agent/reports` API, including history and deduplication.
 4. Registry's current name validator accepts Windows device stems such as `con` and `nul.txt`. This client rejects them on **both** platforms, in addition to the documented Registry stem grammar, rather than accepting a collection that cannot safely be published on Windows. Such a response fails validation in its entirety; upstream name alignment remains separate work.

@@ -242,7 +242,8 @@ do not execute DSC or establish deployed cross-service compatibility.
 Stage 4 adds an opt-in real-peer roundtrip, pinned to these same revisions and
 DSC 3.3.0. A harmless resource barrier holds actual `dscd` protection while an
 update waits; the unchanged report envelope is accepted after its desired
-configuration is removed. Windows runtime passed locally, including the
-relative-path fix, exact history bytes and restart deduplication. Linux runtime,
-installed service lifecycle and whole-machine reboot acceptance remain separate
-gates. See [deployment.md](deployment.md#builds-ci-and-acceptance-evidence).
+configuration is removed. Windows runtime passed locally; Linux and Windows CI
+now also pass the relative-path fix, exact history bytes, OS protection and
+restart deduplication checks. Package lifecycle jobs pass separately. Actual
+target-deployment and whole-machine reboot acceptance remain required.
+See [deployment.md](deployment.md#builds-ci-and-acceptance-evidence).

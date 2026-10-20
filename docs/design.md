@@ -1,9 +1,10 @@
 # `dscregsyncd` — v1 architecture and behavior
 
 **Status:** PRs 1-3 implement foreground synchronization; stage 4 adds native
-service/packaging sources and real peer integration coverage. Windows roundtrip
-runtime evidence exists; Linux, installed-package lifecycle and reboot acceptance
-remain readiness gates. See [deployment.md](deployment.md). **Date:** 2026-10-19.
+service/packaging sources and real peer integration coverage. Native checks,
+real-peer roundtrips and package lifecycle jobs pass in Linux/Windows CI.
+Target-deployment and reboot acceptance remain readiness gates.
+See [deployment.md](deployment.md). **Date:** 2026-10-19.
 
 `dscregsyncd` is an independent, small Go machine-side synchronization service for DSC Registry. It is neither an execution engine nor a replacement for [`dscd`](https://github.com/Bpoe/dsc-reconciler). It runs on Linux and Windows and never invokes the DSC executable or imports Registry's server internals.
 
