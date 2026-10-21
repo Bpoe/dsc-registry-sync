@@ -132,8 +132,14 @@ host is `localhost` or a loopback IP literal. TLS verification stays enabled
 for HTTPS, and redirects are never followed.
 
 `requestTimeoutSeconds` is 1-300 (default 30); `pollFallbackSeconds` is 5-3600
-(default 300). Unknown, duplicate, null and incorrectly typed config fields
-are rejected. Config files are limited to 64 KiB and key files to 8 KiB.
+(default 300). Unknown properties in the local `dscregsyncd.json` settings file
+are ignored for forward and backward compatibility, including objects, arrays
+and nulls. Omitted recognized settings retain their defaults; recognized settings
+with nulls, incorrect types or invalid values are rejected. Malformed JSON and
+duplicate properties are rejected, including within unknown values.
+Config files are limited to 64 KiB and key files to 8 KiB.
+This compatibility behavior does not change Registry API payload or DSC document
+validation.
 Cache/retry policy and response limits are documented in [protocol.md](docs/protocol.md).
 
 The first poll uses `config.d/dscregsync/machine.etag` if present. Missing cache

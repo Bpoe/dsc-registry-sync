@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
@@ -64,16 +65,25 @@ func Load(path string) (Config, error) {
 	if json.Unmarshal(data, &fields) != nil || fields == nil {
 		return Config{}, errors.New("service configuration must be an object")
 	}
-	allowed := map[string]bool{
-		"registryUrl": true, "apiKeyFile": true, "configDir": true, "resultsDir": true,
-		"requestTimeoutSeconds": true, "pollFallbackSeconds": true, "allowInsecureLoopback": true,
-	}
-	for key, v := range fields {
-		if !allowed[key] || bytes.Equal(bytes.TrimSpace(v), []byte("null")) {
-			return Config{}, errors.New("service configuration contains unknown or null fields")
+	cfg := Defaults()
+	// Match encoding/json's case-insensitive field binding without a separate allowlist.
+	configType := reflect.TypeOf(cfg)
+	for i := range configType.NumField() {
+		name := configType.Field(i).Tag.Get("json")
+		found := false
+		for key, v := range fields {
+			if !strings.EqualFold(key, name) {
+				continue
+			}
+			if found {
+				return Config{}, errors.New("service configuration contains duplicate fields")
+			}
+			if bytes.Equal(bytes.TrimSpace(v), []byte("null")) {
+				return Config{}, errors.New("service configuration contains null recognized fields")
+			}
+			found = true
 		}
 	}
-	cfg := Defaults()
 	if json.Unmarshal(data, &cfg) != nil {
 		return Config{}, errors.New("service configuration contains invalid field types")
 	}

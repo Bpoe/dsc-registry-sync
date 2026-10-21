@@ -59,11 +59,124 @@ func TestLoadOverrides(t *testing.T) {
 	}
 }
 
+func TestLoadUnknownFields(t *testing.T) {
+	expected := Defaults()
+	expected.RegistryURL = "https://registry.example"
+	for _, test := range []struct {
+		name  string
+		value string
+	}{
+		{"string", `"ignored"`},
+		{"number", `123456789012345678901234567890e9999`},
+		{"boolean", `true`},
+		{"object", `{"registryUrl":null,"configDir":"relative","nested":{"enabled":true}}`},
+		{"array", `["ignored",42,false,{"requestTimeoutSeconds":null},null]`},
+		{"null", `null`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body := `{"registryUrl":"https://registry.example/","futureSetting":` + test.value + `}`
+			cfg, err := Load(writeConfig(t, []byte(body)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg != expected {
+				t.Fatal("unknown field changed configuration or omitted defaults")
+			}
+		})
+	}
+}
+
+func TestLoadMixedKnownAndUnknownFields(t *testing.T) {
+	root := t.TempDir()
+	expected := Config{
+		RegistryURL: "https://registry.example", APIKeyFile: filepath.Join(root, "key"),
+		ConfigDir: root, ResultsDir: filepath.Join(root, "results"),
+		RequestTimeoutSeconds: 45, PollFallbackSeconds: 600, AllowInsecureLoopback: true,
+	}
+	data, err := json.Marshal(expected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := `{"futureSetting":true,"anotherSetting":{"enabled":true},"deprecatedSetting":null,` + string(data[1:])
+	cfg, err := Load(writeConfig(t, []byte(body)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg != expected {
+		t.Fatal("unknown fields changed recognized overrides")
+	}
+}
+
+func TestLoadInvalidRecognizedFieldTypes(t *testing.T) {
+	for _, field := range []struct {
+		name   string
+		values []string
+	}{
+		{"registryUrl", []string{`null`, `42`, `true`, `{}`, `[]`}},
+		{"apiKeyFile", []string{`null`, `42`, `true`, `{}`, `[]`}},
+		{"configDir", []string{`null`, `42`, `true`, `{}`, `[]`}},
+		{"resultsDir", []string{`null`, `42`, `true`, `{}`, `[]`}},
+		{"requestTimeoutSeconds", []string{`null`, `"30"`, `true`, `{}`, `[]`, `1.5`, `1e1`}},
+		{"pollFallbackSeconds", []string{`null`, `"300"`, `true`, `{}`, `[]`, `5.5`, `1e2`}},
+		{"allowInsecureLoopback", []string{`null`, `"true"`, `1`, `{}`, `[]`}},
+	} {
+		for _, value := range field.values {
+			t.Run(field.name+"/"+value, func(t *testing.T) {
+				body := `{"futureSetting":null,"` + field.name + `":` + value
+				if field.name != "registryUrl" {
+					body += `,"registryUrl":"https://registry.example"`
+				}
+				if _, err := Load(writeConfig(t, []byte(body+`}`))); err == nil {
+					t.Fatal("accepted invalid recognized field")
+				}
+			})
+		}
+	}
+}
+
+func TestLoadCaseInsensitiveFields(t *testing.T) {
+	cfg, err := Load(writeConfig(t, []byte(`{"REGISTRYURL":"https://registry.example","REQUESTTIMEOUTSECONDS":45}`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RegistryURL != "https://registry.example" || cfg.RequestTimeoutSeconds != 45 {
+		t.Fatal("case-insensitive fields were not bound")
+	}
+	for _, body := range []string{
+		`{"registryUrl":"https://registry.example","POLLfallbackSeconds":null}`,
+		`{"registryUrl":"https://registry.example","pollFallbackSeconds":300,"POLLFALLBACKSECONDS":600}`,
+		`{"registryUrl":"https://registry.example","allowInsecureLoopback":false,"AllowInsecureLoopback":true}`,
+	} {
+		if _, err := Load(writeConfig(t, []byte(body))); err == nil {
+			t.Fatal("accepted null or duplicate case-insensitive field")
+		}
+	}
+}
+
+func TestLoadSizeLimit(t *testing.T) {
+	body := `{"registryUrl":"https://registry.example","futureSetting":""}`
+	body = strings.Replace(body, `"futureSetting":""`, `"futureSetting":"`+strings.Repeat("x", (64<<10)-len(body))+`"`, 1)
+	if _, err := Load(writeConfig(t, []byte(body))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(writeConfig(t, []byte(body+" "))); err == nil {
+		t.Fatal("accepted oversized configuration with unknown field")
+	}
+}
+
 func TestInvalidConfiguration(t *testing.T) {
 	for _, body := range []string{
 		`null`, `[]`, `{}`, `{} {}`, `{"registryUrl":`,
 		`{"registryUrl":"https://registry.example","registryUrl":"https://other.example"}`,
 		`{"registryUrl":"https://registry.example","RegistryUrl":"https://other.example"}`,
+		`{"registryUrl":"https://registry.example","futureSetting":true,"futureSetting":null}`,
+		`{"registryUrl":"https://registry.example","futureSetting":true,"future\u0053etting":null}`,
+		`{"registryUrl":"https://registry.example","futureSetting":{"enabled":true,"enabled":false}}`,
+		`{"registryUrl":"https://registry.example","futureSetting":[{"enabled":true,"enabled":false}]}`,
+		`{"registryUrl":"https://registry.example","futureSetting":[1,]}`,
+		`{"registryUrl":"https://registry.example","futureSetting":null} {}`,
+		`{"registryUrl":"https://registry.example","futureSetting":` + strings.Repeat("[", 130) + `0` + strings.Repeat("]", 130) + `}`,
+		"{\"registryUrl\":\"https://registry.example\",\"futureSetting\":\"\xff\"}",
 		`{"registryUrl":"https://registry.example","pollFallbackSeconds":null}`,
 		`{"registryUrl":"https://registry.example","pollFallbackSeconds":4}`,
 		`{"registryUrl":"https://registry.example","pollFallbackSeconds":3601}`,
@@ -124,10 +237,10 @@ func TestRegistryURLPolicyAndPrivacy(t *testing.T) {
 			t.Error("URL validation leaked a value")
 		}
 	}
-	data, _ := json.Marshal(map[string]any{"registryUrl": "https://registry.example", secret: secret})
+	data, _ := json.Marshal(map[string]any{"registryUrl": "https://registry.example", "requestTimeoutSeconds": secret, secret: secret})
 	_, err := Load(writeConfig(t, data))
 	if err == nil || strings.Contains(err.Error(), secret) {
-		t.Fatal("unknown-field validation was not private")
+		t.Fatal("field-type validation was not private")
 	}
 }
 
