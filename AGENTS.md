@@ -7,7 +7,8 @@ Before editing code, read `README.md`, `docs/design.md`, `docs/protocol.md`, `do
 - Repository `dsc-registry-sync`; binary/service `dscregsyncd`. `dscregd` is Registry; `dscd` is the independent local DSC reconciler.
 - Go executable, one module, pragmatic small packages. Standard library first; use external packages only where necessary (for example, filesystem event watching or Windows system calls). No generic DI framework, Clean/Onion layers, ORM, message broker or shared library invented prematurely.
 - Do **not** run DSC from this process. No dependency on `dscd` Go internals: integrate via stable files and HTTP.
-- The machine key scopes all API calls. Never provide machine UUID/name as a caller-controlled authorization identity.
+- The machine key scopes all synchronization/report API calls. Never provide machine UUID/name as a caller-controlled authorization identity.
+- The one-shot `register` command uses a time-limited Bearer registration token to enroll a new machine and securely provision the service JSON/key files. Token creation, re-registration, credential rotation and service installation/startup remain outside this command. Never accept tokens as CLI arguments or overwrite existing local state.
 - Configuration files are `config.d/dscregsync/{name}.json` with optional `{name}.parameters.json`. Per-unit local revision is `.NAME.revision`. Machine collection cache validator is `config.d/dscregsync/machine.etag`.
 - Use current `POST /v1/agent/reports` contract; Registry stores historical revisions, even after config deletion. The older named report endpoint exists for compatibility but should not drive new design.
 - Do not compare `dscd`'s `inputHash` to Registry content revisions; no persistent hashes, transaction files, backups, upload queues or state databases in v1.

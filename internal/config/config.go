@@ -77,13 +77,14 @@ func Load(path string) (Config, error) {
 	if json.Unmarshal(data, &cfg) != nil {
 		return Config{}, errors.New("service configuration contains invalid field types")
 	}
-	if err := cfg.validate(); err != nil {
+	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil
 }
 
-func (c *Config) validate() error {
+// Validate checks and normalizes configuration, including the Registry origin.
+func (c *Config) Validate() error {
 	u, err := url.Parse(c.RegistryURL)
 	if err != nil || u.Hostname() == "" || u.User != nil || u.RawQuery != "" ||
 		u.ForceQuery || u.Fragment != "" || strings.Contains(c.RegistryURL, "#") ||
@@ -145,19 +146,30 @@ func ReadAPIKey(path string) (string, error) {
 	}
 	key := strings.TrimSuffix(string(data), "\n")
 	key = strings.TrimSuffix(key, "\r")
+	if err := ValidateAPIKey(key); err != nil {
+		return "", err
+	}
+	return key, nil
+}
+
+// ValidateAPIKey accepts the same machine credential in files and enrollment responses.
+func ValidateAPIKey(key string) error {
+	if len(key) > 8192 {
+		return errors.New("machine key exceeds size limit")
+	}
 	id, secret, ok := strings.Cut(key, ".")
 	if !ok || !strings.HasPrefix(id, "dscm_") || len(id) <= len("dscm_") || secret == "" {
-		return "", errors.New("key file must contain a machine API key")
+		return errors.New("key file must contain a machine API key")
 	}
 	for _, part := range []string{strings.TrimPrefix(id, "dscm_"), secret} {
 		for _, c := range part {
 			if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' ||
 				c >= '0' && c <= '9' || c == '_' || c == '-') {
-				return "", errors.New("machine key contains invalid characters")
+				return errors.New("machine key contains invalid characters")
 			}
 		}
 	}
-	return key, nil
+	return nil
 }
 
 func readFile(path string, limit int64) ([]byte, error) {

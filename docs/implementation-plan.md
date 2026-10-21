@@ -65,6 +65,24 @@ for exact evidence, commands and release gates; do not declare v1 ready yet.
 
 **Done when:** both services run natively, lock interop has OS-level test evidence, and a complete configuration/report roundtrip passes with real Registry.
 
+## Follow-up PR — explicit machine registration and local provisioning
+
+- Add the one-shot `register <machine-name> --server <origin>` CLI without
+  changing daemon flags/loops; securely read a registration token from the
+  terminal or `--token-stdin`, never from a command argument.
+- Use Registry PR 15's Bearer-only `POST /v1/agent/register`, existing origin/TLS
+  policy, bounded response validation, no redirects and a single timed attempt.
+- Preflight protected paths and privileges, refuse existing config/key files,
+  stage private files and publish the key before complete service JSON without
+  replacement. No machine ID file or service installation/startup.
+- Cover CLI, token privacy, mock HTTP, local cleanup, Linux ownership/modes and
+  Windows ACLs, including privileged native CI checks. Document onboarding and
+  administrator recovery after an uncertain/partially persisted registration.
+
+**Scope:** interactive/operator-directed enrollment only. Token creation,
+machine re-registration, automatic credential rotation and backend changes
+remain excluded.
+
 ## Deferred — do not opportunistically add
 
-Autoregistration, machine-name discovery, history backlog/queue, full snapshots database, outbox, credential/token exchange, certificate auto-enrollment, UI, hot config reload, telemetry exporters, peer-to-peer coordination, Kubernetes daemonset, report compression, cloud-specific hosting, automatic `dscd` installation, and file content integrity hashes.
+Automatic registration, machine-name discovery, history backlog/queue, full snapshots database, outbox, registration token creation, re-registration/credential rotation, certificate auto-enrollment, UI, hot config reload, telemetry exporters, peer-to-peer coordination, Kubernetes daemonset, report compression, cloud-specific hosting, automatic `dscd` installation, and file content integrity hashes.

@@ -20,6 +20,9 @@ import (
 var version = "dev"
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "register" {
+		os.Exit(runRegister(context.Background(), os.Args[2:], os.Stdin, os.Stdout, os.Stderr, terminalToken))
+	}
 	os.Exit(platformRun(os.Args[1:]))
 }
 
@@ -28,6 +31,9 @@ func run(ctx context.Context, args []string, output io.Writer) int {
 }
 
 func runReady(ctx context.Context, args []string, output io.Writer, ready func()) int {
+	if len(args) > 0 && args[0] == "register" {
+		return runRegister(ctx, args[1:], os.Stdin, output, output, terminalToken)
+	}
 	log := slog.New(slog.NewJSONHandler(output, nil))
 	flags := flag.NewFlagSet("dscregsyncd", flag.ContinueOnError)
 	// flag errors echo user input; only help output is safe to print verbatim.
@@ -36,6 +42,7 @@ func runReady(ctx context.Context, args []string, output io.Writer, ready func()
 	printVersion := flags.Bool("version", false, "print the build version and exit")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
+			fmt.Fprintln(output, "Usage: dscregsyncd [-config path] [-version]\n       dscregsyncd register <machine-name> --server <registry-url> [--config path] [--token-stdin]\n\nregister provisions a new machine using a registration token (no service installation or startup).")
 			flags.SetOutput(output)
 			flags.PrintDefaults()
 			return 0

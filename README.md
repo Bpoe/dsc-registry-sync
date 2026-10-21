@@ -10,13 +10,14 @@ remain required; this is **not yet a v1 production-readiness declaration**.
 
 ## Responsibilities
 
-- Authenticate to [`dscregd`](https://github.com/Bpoe/dsc-registry) with an already-provisioned **machine API key** over HTTPS.
+- Register a new machine with a time-limited Registry registration token and securely provision the local service configuration and machine API key.
+- Authenticate to [`dscregd`](https://github.com/Bpoe/dsc-registry) with the **machine API key** over HTTPS.
 - Poll `GET /v1/agent/configurations` conditionally with the machine ETag and respect `Cache-Control`.
 - Publish `.json` DSC templates and optional `.parameters.json` sidecars into the dedicated `config.d/dscregsync/` directory.
 - Observe `dscd`'s atomic result-file publications using a filesystem watcher and upload the latest available result through the Registry machine API.
 - Persist minimal revision/ETag state; allow `dscd` to continue offline.
 
-**Not responsible for:** executing DSC, registering machines, issuing keys, interpreting resource compliance, managing local non-Registry configurations, or guaranteeing delivery of every historical execution report.
+**Not responsible for:** executing DSC, creating registration tokens, re-registering machines, rotating credentials, interpreting resource compliance, managing local non-Registry configurations, or guaranteeing delivery of every historical execution report.
 
 ## Components
 
@@ -51,7 +52,8 @@ Windows counterparts live under `%ProgramData%\dsc\` (including `config.d\dscreg
 ## Build and run the synchronizer
 
 Use Go 1.27 or newer. External Go modules are `golang.org/x/sys` for Windows
-handle-relative creation/private ACLs and `github.com/fsnotify/fsnotify` for
+handle-relative creation/private ACLs, `golang.org/x/term` for no-echo registration
+token input, and `github.com/fsnotify/fsnotify` for
 native filesystem notifications (inotify on Linux, ReadDirectoryChangesW on Windows).
 
 ```sh
@@ -66,10 +68,49 @@ go build -o dscregsyncd.exe .\cmd\dscregsyncd
 .\dscregsyncd.exe -config "$env:ProgramData\dsc\dscregsyncd.json"
 ```
 
-Provision a machine key separately in the protected `apiKeyFile`; never put the
-key in JSON, command-line arguments or source control. Restrict the key file to
-the service identity (Linux mode 0600, Windows restricted ACLs). This stage reads
-the key at startup; restart after key rotation. It does not change key permissions.
+Register interactively as root (Linux) or from an elevated Administrator
+terminal (Windows), using a registration token supplied by a Registry administrator:
+
+```sh
+sudo dscregsyncd register foobar --server https://registry.example.internal
+# Registration token: (input is not echoed)
+sudo systemctl start dscregsyncd
+```
+
+```powershell
+& "$env:ProgramFiles\dscregsyncd\dscregsyncd.exe" register foobar --server https://registry.example.internal
+Start-Service dscregsyncd
+```
+
+For noninteractive automation, read one token line from a protected secret file;
+never pass a token as an argument:
+
+```sh
+# In a root shell with access to the protected secret file:
+dscregsyncd register foobar --server https://registry.example.internal --token-stdin < /run/secrets/registry-registration-token
+```
+
+```powershell
+# In an elevated terminal:
+Get-Content -LiteralPath 'C:\secure\registry-registration-token' |
+    & "$env:ProgramFiles\dscregsyncd\dscregsyncd.exe" register foobar --server https://registry.example.internal --token-stdin
+```
+
+Registration creates the platform-default `dscregsyncd.json` and
+`dscregsyncd.key` shown above. `--config <absolute-path>` changes the JSON
+destination and places `dscregsyncd.key` beside it; all other paths retain
+platform defaults. Files are root-owned mode 0600 on Linux, or protected by
+SYSTEM/Administrators-only ACLs on Windows. Unsafe ancestors and existing
+destinations are refused before contacting Registry. The command never
+installs/starts a service, installs DSC/`dscd`, or saves a machine ID file.
+Registration needs Registry PR 15 (merged) or a later compatible release.
+If the response is lost or local persistence fails after remote registration,
+ask an administrator to recover the machine key; do not blindly register again.
+See [deployment.md](docs/deployment.md) for permissions and recovery.
+
+Manual configuration with a separately issued machine key is still supported.
+Never put a key in JSON, command-line arguments or source control. The daemon reads
+the key at startup; restart after administrator-managed key rotation.
 `-config` defaults to the platform service-config path above. `-help` prints
 usage; `-version` identifies the build. Ctrl+C, and SIGTERM on Linux, cancel requests and waits. Logs are JSON on
 stderr; startup/validation failures exit nonzero, while HTTP failures back off.
@@ -79,7 +120,7 @@ shutdown allow 30 seconds for cleanup before exiting nonzero.
 
 See [deployment.md](docs/deployment.md) for package builds, installation,
 protected credential provisioning, upgrade/uninstall behavior and acceptance
-checks. Neither package family installs DSC or `dscd`, registers a machine, or
+checks. Neither package family installs DSC or `dscd`, automatically registers a machine, or
 ships a key or active configuration file.
 
 `registryUrl` is required and must be an HTTPS origin, with no credentials,

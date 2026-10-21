@@ -28,9 +28,26 @@ jobs:
             $unformatted
             throw 'Go sources are not formatted'
           }
+      - name: Prepare protected Windows test temporary directory
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
+          if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+            throw 'Windows onboarding tests require an elevated runner'
+          }
+          $privateTemp = Join-Path $env:ProgramData ('dscregsync-test-' + [Guid]::NewGuid().ToString('N'))
+          $acl = [Security.AccessControl.DirectorySecurity]::new()
+          $acl.SetSecurityDescriptorSddlForm('O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)')
+          [IO.FileSystemAclExtensions]::Create([IO.DirectoryInfo]::new($privateTemp), $acl) | Out-Null
+          "TEMP=$privateTemp" >> $env:GITHUB_ENV
+          "TMP=$privateTemp" >> $env:GITHUB_ENV
       - run: go test ./...
       - run: go vet ./...
       - run: go test -race ./...
+      - name: Test root-owned registration provisioning
+        if: runner.os == 'Linux'
+        run: sudo env "PATH=$PATH" "GOCACHE=$RUNNER_TEMP/root-go-cache" go test -race ./internal/provision ./cmd/dscregsyncd -run 'TestProvision|TestRegistration' -count=1
       - name: Build native daemon
         run: go build ./cmd/dscregsyncd
       - name: Cross-build Windows daemon

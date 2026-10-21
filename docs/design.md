@@ -22,9 +22,9 @@ See [deployment.md](deployment.md). **Date:** 2026-10-19.
                                            reads / reconciles / publishes
 ```
 
-The sync service polls assigned configurations, installs them as local JSON files, observes latest result files produced by `dscd`, and uploads results with correct Registry revision association. Machine registration and issuing API keys are administrator tasks performed before installing/configuring the agent.
+The sync service polls assigned configurations, installs them as local JSON files, observes latest result files produced by `dscd`, and uploads results with correct Registry revision association. Its separate one-shot `register` command enrolls a new machine with a time-limited Registry token and provisions protected local service configuration/key files. Registry administrators create registration tokens; the server issues the machine key.
 
-Not in v1: remote commands, installing DSC itself, administering `dscd`, cloud discovery, templates/assignment compilation, central policy logic, security token exchange, server push/websockets, exactly-once execution, queueing every result while offline, compliance evaluation, UI, automatic rollback, and shared Go modules with the other projects.
+Not in v1: remote commands, installing DSC itself, administering `dscd`, cloud discovery, templates/assignment compilation, central policy logic, registration token creation, automatic re-registration/credential rotation, server push/websockets, exactly-once execution, queueing every result while offline, compliance evaluation, UI, automatic rollback, and shared Go modules with the other projects.
 
 ## 2. Runtime model
 
@@ -137,6 +137,30 @@ See [protocol.md](protocol.md#upload-identity-and-exact-bytes) for the fixed UUI
 derivation, bounds and permanent/retryable status policy.
 
 ## 7. Service config and security
+
+`dscregsyncd register <machine-name> --server <origin>` is a one-shot foreground
+operation, not a daemon/service mode. It reads a token without terminal echo
+(`golang.org/x/term`) or reads one line with `--token-stdin`. No credential is
+accepted as an argument. Existing URL policy applies; HTTP loopback requires
+explicit `--allow-insecure-loopback`. The Registry registration API uses Bearer
+authentication; subsequent daemon calls continue to use the machine API key.
+
+Before HTTP, registration verifies privilege and all credential-path ancestors,
+refuses existing destinations and preflights private staging/no-replace publication.
+Linux requires root-owned protected directories and creates files mode 0600.
+Windows requires elevation, rejects reparse points and creates files/directories
+with SYSTEM/Administrators-only protected ACLs. It stages and flushes both files,
+publishes the key without replacement, then the complete JSON config last.
+Failure cleanup checks file identity and only removes this attempt's files.
+No persistent ID, rollback journal or credential queue is introduced.
+`--config` places the JSON and its sibling `dscregsyncd.key` at an alternate
+protected destination; other platform defaults are unchanged.
+
+There is exactly one registration HTTP attempt, no redirects and a bounded,
+validated response. If the remote outcome is uncertain or local persistence
+fails after registration, explicit administrator recovery is required rather
+than re-registration. Service installation/startup remains a packaging/operator
+task. See [deployment.md](deployment.md) for recovery and permissions.
 
 Prefer JSON for the service config to avoid adding YAML purely for service configuration. See `examples/dscregsyncd.json`. Initial fields:
 
