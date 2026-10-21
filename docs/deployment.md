@@ -167,6 +167,16 @@ signing policy rather than treating checksums as publisher authentication.
 
 ## Key rotation, TLS and diagnosis
 
+Ctrl+C (and SIGTERM on Linux) cancels the one-shot `register` command, including
+blocked terminal or `--token-stdin` input. It restores terminal settings and
+runs provisioning cleanup before exiting nonzero. Cancellation during HTTP
+can leave the remote registration outcome uncertain; it does not undo a
+registration already accepted by Registry. If local publication has completed,
+the installed configuration/key remain intact; otherwise cleanup removes only
+this attempt's staging files and incomplete publications. Forced termination
+(for example SIGKILL or Windows process termination) cannot run this cleanup.
+Daemon and Windows service shutdown behavior is unchanged.
+
 `register --config <absolute-path>` changes the destination JSON path and places
 `dscregsyncd.key` in that same directory. Other config defaults remain unchanged;
 configure the service's JSON path as described above before starting it.

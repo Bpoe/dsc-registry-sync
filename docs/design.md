@@ -140,7 +140,8 @@ derivation, bounds and permanent/retryable status policy.
 
 `dscregsyncd register <machine-name> --server <origin>` is a one-shot foreground
 operation, not a daemon/service mode. It reads a token without terminal echo
-(`golang.org/x/term`) or reads one line with `--token-stdin`. No credential is
+or reads one line with `--token-stdin`. Both reads honor cancellation and restore
+any changed terminal modes before provisioning cleanup. No credential is
 accepted as an argument. Existing URL policy applies; HTTP loopback requires
 explicit `--allow-insecure-loopback`. The Registry registration API uses Bearer
 authentication; subsequent daemon calls continue to use the machine API key.

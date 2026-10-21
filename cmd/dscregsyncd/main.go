@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/Bpoe/dsc-registry-sync/internal/config"
@@ -21,7 +23,10 @@ var version = "dev"
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "register" {
-		os.Exit(runRegister(context.Background(), os.Args[2:], os.Stdin, os.Stdout, os.Stderr, terminalToken))
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		code := runRegister(ctx, os.Args[2:], os.Stdin, os.Stdout, os.Stderr, terminalToken)
+		stop()
+		os.Exit(code)
 	}
 	os.Exit(platformRun(os.Args[1:]))
 }

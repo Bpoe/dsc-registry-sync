@@ -147,6 +147,12 @@ func TestProvisionFailureCleanup(t *testing.T) {
 			if failure != "abandoned" && files.Publish(ctx, key) == nil {
 				t.Fatal("failed provisioning succeeded")
 			}
+			if failure == "canceled" {
+				data, err := files.root().ReadFile(files.key.name)
+				if err != nil || string(data) != testKey {
+					t.Fatal("cancellation test did not stage a credential before cleanup")
+				}
+			}
 			// Closed handles and nonempty concurrent directories can make cleanup
 			// report an error; it must still clean every owned file it can.
 			closeErr := files.Close()

@@ -52,8 +52,8 @@ Windows counterparts live under `%ProgramData%\dsc\` (including `config.d\dscreg
 ## Build and run the synchronizer
 
 Use Go 1.27 or newer. External Go modules are `golang.org/x/sys` for Windows
-handle-relative creation/private ACLs, `golang.org/x/term` for no-echo registration
-token input, and `github.com/fsnotify/fsnotify` for
+handle-relative creation/private ACLs and terminal modes, `golang.org/x/term` for
+registration terminal detection, and `github.com/fsnotify/fsnotify` for
 native filesystem notifications (inotify on Linux, ReadDirectoryChangesW on Windows).
 
 ```sh

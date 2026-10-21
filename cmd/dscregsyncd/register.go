@@ -19,6 +19,8 @@ import (
 
 const registrationUsage = "Usage: dscregsyncd register <machine-name> --server <registry-url> [--config path] [--token-stdin] [--allow-insecure-loopback]\nThe token is read without echo from the terminal, or as one line with --token-stdin.\n"
 
+var errRestoreTerminal = errors.New("cannot restore terminal settings after registration token input")
+
 type registerOptions struct {
 	name, server, path string
 	stdin, loopback    bool
@@ -52,7 +54,7 @@ func parseRegister(args []string) (registerOptions, error) {
 }
 
 func runRegister(ctx context.Context, args []string, input io.Reader, output, diagnostics io.Writer,
-	readPassword func(io.Reader) ([]byte, error),
+	readPassword func(context.Context, io.Reader) ([]byte, error),
 ) (code int) {
 	fail := func(err error) int {
 		fmt.Fprintln(diagnostics, err)
@@ -84,7 +86,7 @@ func runRegister(ctx context.Context, args []string, input io.Reader, output, di
 			code = 1
 		}
 	}()
-	token, err := readToken(input, diagnostics, options.stdin, readPassword)
+	token, err := readToken(ctx, input, diagnostics, options.stdin, readPassword)
 	if err != nil {
 		return fail(err)
 	}
@@ -105,26 +107,29 @@ func runRegister(ctx context.Context, args []string, input io.Reader, output, di
 	return 0
 }
 
-func readToken(input io.Reader, prompt io.Writer, stdin bool, readPassword func(io.Reader) ([]byte, error)) (string, error) {
+func readToken(ctx context.Context, input io.Reader, prompt io.Writer, stdin bool,
+	readPassword func(context.Context, io.Reader) ([]byte, error),
+) (string, error) {
 	var data []byte
 	var err error
 	if stdin {
-		reader := bufio.NewReader(io.LimitReader(input, 8194))
-		data, err = reader.ReadBytes('\n')
-		if err == io.EOF {
-			err = nil
-		}
-		data = []byte(strings.TrimSuffix(strings.TrimSuffix(string(data), "\n"), "\r"))
+		data, err = readTokenLine(ctx, input)
 	} else {
 		if _, err := fmt.Fprint(prompt, "Registration token: "); err != nil {
 			return "", errors.New("cannot write registration prompt")
 		}
-		data, err = readPassword(input)
+		data, err = readPassword(ctx, input)
 		if _, newlineErr := fmt.Fprintln(prompt); err == nil {
 			err = newlineErr
 		}
 	}
 	defer clear(data)
+	if errors.Is(err, errRestoreTerminal) {
+		return "", errRestoreTerminal
+	}
+	if ctx.Err() != nil {
+		return "", errors.New("registration canceled while reading token")
+	}
 	if err != nil {
 		return "", errors.New("cannot read registration token; use a terminal or --token-stdin")
 	}
@@ -135,10 +140,58 @@ func readToken(input io.Reader, prompt io.Writer, stdin bool, readPassword func(
 	return token, nil
 }
 
-func terminalToken(input io.Reader) ([]byte, error) {
+func readTokenLine(ctx context.Context, input io.Reader) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	type result struct {
+		data []byte
+		err  error
+	}
+	done := make(chan result)
+	// A pipe or console read may outlive cancellation. Do not wait for it before
+	// cleaning provisioning files and exiting this one-shot command.
+	go func() {
+		reader := bufio.NewReader(io.LimitReader(input, 8194))
+		data, err := reader.ReadBytes('\n')
+		if err == io.EOF {
+			err = nil
+		}
+		select {
+		case done <- result{data, err}:
+		case <-ctx.Done():
+			clear(data)
+		}
+	}()
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case result := <-done:
+		data := result.data
+		if len(data) > 0 && data[len(data)-1] == '\n' {
+			data = data[:len(data)-1]
+		}
+		if len(data) > 0 && data[len(data)-1] == '\r' {
+			data = data[:len(data)-1]
+		}
+		return data, result.err
+	}
+}
+
+func terminalToken(ctx context.Context, input io.Reader) (data []byte, err error) {
 	file, ok := input.(*os.File)
 	if !ok || !term.IsTerminal(int(file.Fd())) {
 		return nil, errors.New("standard input is not a terminal")
 	}
-	return term.ReadPassword(int(file.Fd()))
+	restore, err := disableTokenEcho(file)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if restore() != nil {
+			clear(data)
+			data, err = nil, errRestoreTerminal
+		}
+	}()
+	return readTokenLine(ctx, file)
 }
