@@ -176,6 +176,16 @@ Prefer JSON for the service config to avoid adding YAML purely for service confi
 }
 ```
 
+The local `dscregsyncd.json` settings file ignores unknown properties for forward
+and backward compatibility, regardless of their JSON value (including null,
+objects and arrays). Recognized settings are applied over platform defaults;
+`registryUrl` remains required. Explicit nulls, incorrect types and invalid URL,
+path or numeric values for recognized settings are rejected. The file must be
+a single valid JSON object within 64 KiB, without duplicate properties, including
+inside unknown values or case-variant aliases of recognized settings.
+This applies only to local daemon settings, not Registry API payloads or DSC
+configuration documents.
+
 The API key is stored **outside** this JSON file and never logged. Linux: root-owned restrictive key file (0600) and protected parent directory. Windows: ACL-restricted to service identity/SYSTEM/Administrators; a stronger DPAPI-backed provider can be revisited if needed, but is not a prerequisite for v1. HTTPS is required except explicitly configured loopback development. Use OS trust roots and normal certificate validation; no `insecureSkipVerify` option. Fail clearly on invalid URL/path/configuration, malicious names, permission failures or inability to establish exclusive ownership of the managed tree.
 
 The loopback development opt-in is `allowInsecureLoopback` (default `false`).
