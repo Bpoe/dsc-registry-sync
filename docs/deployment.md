@@ -18,8 +18,9 @@ a machine. Remove retained data only after stopping both daemons and deciding
 whether offline reconciliation should continue.
 
 The package scripts do not rewrite existing data-directory permissions. New
-Linux service roots use 0700; Windows data roots must be provisioned with
-restricted ACLs before credentials are copied. The daemon still creates new
+Linux service roots use 0700; `register` creates missing credential parents
+privately and verifies existing directories without rewriting their permissions.
+The daemon still creates new
 managed entries privately, but cannot make an insecure administrator-owned
 ancestor safe. Roots/ancestors must not be writable by untrusted users or
 redirected through untrusted symlinks/reparse points.
@@ -31,12 +32,33 @@ Install the `.deb` with `apt install ./dscregsyncd_VERSION_amd64.deb`, or the
 Packages enable `dscregsyncd.service`. On an unprovisioned host systemd skips
 startup because `/etc/dsc/dscregsyncd.json` is absent.
 
-For initial provisioning, ensure neither destination already exists. Copy the
-example to `/etc/dsc/dscregsyncd.json` as root, mode 0600, and set `registryUrl`
-to the production HTTPS origin. Place the separately issued machine key at
-`/etc/dsc/dscregsyncd.key`, root-owned mode 0600, using a secure source file or
-secret-management tool, not shell history or command-line key values.
-Do not put the key in JSON.
+For initial provisioning, obtain a time-limited registration token from a Registry
+administrator (the server must include Registry PR 15). Run as root:
+
+```sh
+sudo dscregsyncd register foobar --server https://registry.example.internal
+# Registration token: (no echo)
+```
+
+This one-shot command creates `/etc/dsc/dscregsyncd.json` using the existing
+defaults and `/etc/dsc/dscregsyncd.key` containing only the returned machine key.
+Both are root-owned mode 0600; newly created parents use 0700. Existing parents
+must be root-owned and not group/world writable. Root-owned sticky ancestors
+such as `/tmp` are allowed, but the credential parent itself must not be
+group/world writable. Symlinks, unsafe redirections and existing config/key
+destinations are rejected. Fix unsafe directories deliberately; registration does
+not change shared DSC directories' ownership or permissions.
+
+For automation, use a protected secret file in a root shell:
+
+```sh
+dscregsyncd register foobar --server https://registry.example.internal --token-stdin < /run/secrets/registry-registration-token
+```
+
+`--token-stdin` reads one line without prompting, accepting LF, CRLF or EOF.
+Empty tokens are rejected. Never put the token itself on the command line.
+Registration does not install or start any service; start the existing package's
+service after successful provisioning:
 
 ```sh
 sudo systemctl start dscregsyncd
@@ -75,8 +97,33 @@ provision/verify data, then explicitly start it. Automatic startup applies on
 subsequent boots. Recovery on handled nonzero SCM exits is configured, but Windows
 may require the next system boot to activate that failure-policy flag.
 
-Provision `%ProgramData%\dsc` before copying any credentials. For a **new**
-directory, PowerShell 7 can create it with the ACL already restricted:
+From an elevated Administrator terminal, register and then start the existing
+service:
+
+```powershell
+& "$env:ProgramFiles\dscregsyncd\dscregsyncd.exe" register foobar --server https://registry.example.internal
+# Registration token: (no echo)
+Start-Service dscregsyncd
+```
+
+For automation, load the token from a restricted file rather than an argument:
+
+```powershell
+Get-Content -LiteralPath 'C:\secure\registry-registration-token' |
+    & "$env:ProgramFiles\dscregsyncd\dscregsyncd.exe" register foobar --server https://registry.example.internal --token-stdin
+```
+
+Registration creates `%ProgramData%\dsc\dscregsyncd.json` and
+`%ProgramData%\dsc\dscregsyncd.key`, with protected ACLs allowing only SYSTEM
+and Administrators. Missing parents are created with the same ACL and
+Administrators ownership at creation, before secrets are written. Existing
+credential parents must already have trusted ownership and SYSTEM/Administrators-only
+access; ancestors must not allow untrusted deletion or permission changes.
+Reparse points and network volumes are refused. The command requires elevation,
+never changes existing ACLs, and never overwrites existing files.
+
+For **manual** provisioning instead, PowerShell 7 can create a new directory
+with the ACL already restricted:
 
 ```powershell
 $data = Join-Path $env:ProgramData 'dsc'
@@ -120,6 +167,40 @@ signing policy rather than treating checksums as publisher authentication.
 
 ## Key rotation, TLS and diagnosis
 
+Ctrl+C (and SIGTERM on Linux) cancels the one-shot `register` command, including
+blocked terminal or `--token-stdin` input. It restores terminal settings and
+runs provisioning cleanup before exiting nonzero. Cancellation during HTTP
+can leave the remote registration outcome uncertain; it does not undo a
+registration already accepted by Registry. If local publication has completed,
+the installed configuration/key remain intact; otherwise cleanup removes only
+this attempt's staging files and incomplete publications. Forced termination
+(for example SIGKILL or Windows process termination) cannot run this cleanup.
+Daemon and Windows service shutdown behavior is unchanged.
+
+`register --config <absolute-path>` changes the destination JSON path and places
+`dscregsyncd.key` in that same directory. Other config defaults remain unchanged;
+configure the service's JSON path as described above before starting it.
+No machine-ID file is written: the API key scopes all daemon API requests.
+
+Registration preflights protected directories, creates private temporary files
+and checks atomic no-overwrite publication before its single HTTP request.
+The complete configuration is published last, after the key, and neither file
+can replace an existing destination. Failures clean up only this attempt's
+files; unrelated/concurrent files are preserved. This is not a two-file
+power-loss transaction: interruption can leave protected staging files or a key
+without a JSON config. Inspect such remnants as an administrator, never blindly
+delete existing state or repeat registration.
+
+A successful server response discloses the machine key only once. A network
+failure, malformed success response or local persistence failure may mean the
+name is already registered. The command never retries, rotates a key or deletes
+a remote machine. Have a Registry administrator inspect the record and issue a
+replacement machine key if required, then provision manually using the existing
+secure procedures. A duplicate-name (`409`) error does not change that machine.
+Expired/invalid tokens (`401`) require a valid token; token creation remains a
+Registry administrator responsibility. Tokens and returned keys are never
+printed in command output or errors.
+
 Issue the replacement machine key through Registry administration. While the old
 key remains valid, prepare the replacement in a private file in the protected
 key directory, stop this service, atomically replace the key file and restart.
@@ -131,7 +212,10 @@ routine logs, issue report or source control.
 HTTPS uses OS trust roots and normal hostname/certificate validation. Provision
 the internal CA into the service's OS trust store if necessary; there is no
 certificate-verification bypass. HTTP is only an explicit loopback development
-option. Redirects are refused.
+option. For registration only, explicitly pass `--allow-insecure-loopback` with
+an HTTP loopback origin to persist that development opt-in; HTTPS certificate
+validation is never disabled. Redirects are refused and registration requests
+use the default 30-second timeout. Service runtime flags/behavior are unchanged.
 
 Use status codes, retry delays and lifecycle events to diagnose failures.
 401/403 indicate credential/role problems; 429/5xx back off without deleting
@@ -149,6 +233,17 @@ cannot repair arbitrary local deletion. Do not delete revisions or alter other
 `config.d` subtrees as a troubleshooting shortcut.
 
 ## Builds, CI and acceptance evidence
+
+Registration tests use mock Registry HTTP servers and temporary directories,
+not a live Registry or the installed service. Native credential provisioning
+coverage requires root on Linux or an elevated Administrator on Windows.
+CI runs the Linux provisioning/CLI cases with `sudo` and creates a private
+SYSTEM/Administrators-only Windows temporary root before the native suite.
+For equivalent local Windows checks, create a protected temporary directory
+using the ACL-at-creation pattern above and set `TMP`/`TEMP` to it for the test
+process; a normal user-writable ancestor is intentionally rejected. Nonprivileged
+test runs cover input/API behavior and privilege rejection but skip successful
+credential installation. Windows race tests additionally require a C compiler.
 
 From the repository root, with Go 1.27:
 

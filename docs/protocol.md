@@ -2,6 +2,34 @@
 
 **Authority:** https://github.com/Bpoe/dsc-registry/blob/main/docs/api.md and https://github.com/Bpoe/dsc-reconciler/blob/main/docs/design.md . This is a consumer-oriented reference, not a fork of the server schema. Verify contract changes against the current code during each implementation PR.
 
+## One-shot machine registration
+
+Registry PR 15 (merged as `7d32b508c191e92f778747188eeacf90493b44b6`)
+adds `POST /v1/agent/register`, using `Authorization: Bearer <registration-token>`
+and `Content-Type: application/json`. The request is exactly `{"name":"foobar"}`;
+the machine name is a UTF-8 display name (1-256 bytes, no surrounding whitespace
+or control characters), **not** a configuration stem or filesystem name.
+
+Only `201 Created` succeeds. The UTF-8 JSON response must contain exact `id`,
+`name`, `apiKey` properties: a nonzero canonical UUID, the unchanged requested
+name and a valid `dscm_...` machine key. Additive response properties are ignored.
+The client bounds response headers to 64 KiB and uncompressed body to 16 KiB,
+rejects duplicate properties, malformed JSON, null required fields and trailing
+data, and never prints response bodies or credentials.
+
+HTTPS uses normal OS trust/hostname checks; HTTP requires explicit loopback
+development opt-in. Redirects are refused. The request uses the config model's
+default 30-second timeout and is never automatically retried. `401` means an
+invalid/expired registration token; `409` means an already registered name.
+Network errors or an invalid success response can leave the remote outcome
+uncertain; server failures/local persistence failures require administrator
+inspection/recovery, not blind re-registration. Token creation and replacement
+key issuance remain Registry administrator operations.
+
+On success the one-shot command securely publishes only the service JSON and
+separate key file, not a machine ID. No sync/report protocol or daemon loop is
+changed. See [deployment.md](deployment.md) for publication and recovery rules.
+
 ## Machine GET
 
 Request (when a locally committed validator exists, including normal startup):
