@@ -70,7 +70,7 @@ func TestProvisionSuccessfulAndSafeRerun(t *testing.T) {
 		t.Fatal("JSON contains machine credential")
 	}
 	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(data, &fields); err != nil || len(fields) != 7 {
+	if err := json.Unmarshal(data, &fields); err != nil || len(fields) != 6 {
 		t.Fatal("unexpected persisted configuration model")
 	}
 	if _, err := Prepare(path, cfg); err == nil {

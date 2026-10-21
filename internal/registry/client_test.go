@@ -130,7 +130,7 @@ func TestFetchResponses(t *testing.T) {
 
 func TestHTTPFailuresAndRedirectPrivacy(t *testing.T) {
 	key := machineKey()
-	for _, status := range []int{204, 301, 302, 307, 308, 400, 401, 403, 404, 429, 500, 503} {
+	for _, status := range []int{204, 301, 302, 303, 307, 308, 400, 401, 403, 404, 429, 500, 503} {
 		requests := 0
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			requests++
@@ -202,6 +202,10 @@ func TestCancellationAndTimeout(t *testing.T) {
 
 func TestTLSVerification(t *testing.T) {
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/agent/reports" {
+			w.WriteHeader(201)
+			return
+		}
 		w.Header().Set("ETag", `"e"`)
 		w.Header().Set("Content-Type", "application/json")
 		io.WriteString(w, collection())
@@ -214,9 +218,19 @@ func TestTLSVerification(t *testing.T) {
 	if _, err := client.Fetch(context.Background(), ""); err == nil {
 		t.Fatal("untrusted TLS certificate accepted")
 	}
+	report, err := NewReport("docker", revision, []byte("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Upload(context.Background(), report); err == nil {
+		t.Fatal("report upload accepted an untrusted TLS certificate")
+	}
 	client.http.Transport = server.Client().Transport
 	if _, err := client.Fetch(context.Background(), ""); err != nil {
 		t.Fatal("trusted test certificate rejected:", err)
+	}
+	if _, err := client.Upload(context.Background(), report); err != nil {
+		t.Fatal("report upload rejected a trusted test certificate:", err)
 	}
 }
 

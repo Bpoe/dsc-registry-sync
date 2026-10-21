@@ -163,7 +163,6 @@ func TestForegroundErrorPreservesStateAndShutdown(t *testing.T) {
 		cfg.ConfigDir = filepath.Join(root, "config.d")
 		cfg.ResultsDir = filepath.Join(root, "results.d")
 		cfg.APIKeyFile = filepath.Join(root, "key")
-		cfg.AllowInsecureLoopback = true
 		key := "dscm_" + rand.Text() + "." + rand.Text()
 		if err := os.WriteFile(cfg.APIKeyFile, []byte(key), 0600); err != nil {
 			t.Fatal(err)
@@ -215,6 +214,9 @@ func TestForegroundErrorPreservesStateAndShutdown(t *testing.T) {
 		}
 		if strings.Contains(logs.String(), key) {
 			t.Fatal("lifecycle logs leaked credentials")
+		}
+		if strings.Contains(logs.String(), "HTTP connections are not encrypted") {
+			t.Fatal("daemon emitted a registration-only transport warning")
 		}
 	}
 }
@@ -280,7 +282,6 @@ func TestPollingContinuesDuringBlockedReportUpload(t *testing.T) {
 	cfg.ConfigDir = filepath.Join(root, "config.d")
 	cfg.ResultsDir = filepath.Join(root, "results.d")
 	cfg.APIKeyFile = filepath.Join(root, "key")
-	cfg.AllowInsecureLoopback = true
 	key := "dscm_" + rand.Text() + "." + rand.Text()
 	if err := os.WriteFile(cfg.APIKeyFile, []byte(key), 0600); err != nil {
 		t.Fatal(err)
@@ -344,5 +345,8 @@ func TestPollingContinuesDuringBlockedReportUpload(t *testing.T) {
 	}
 	if !reflect.DeepEqual(before, snapshot(t, root)) {
 		t.Fatal("upload outage modified cached desired state/results")
+	}
+	if strings.Contains(logs.String(), key) || strings.Contains(logs.String(), "HTTP connections are not encrypted") {
+		t.Fatal("daemon leaked a credential or emitted a registration-only transport warning")
 	}
 }

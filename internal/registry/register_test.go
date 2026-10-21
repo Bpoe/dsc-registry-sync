@@ -18,7 +18,6 @@ import (
 func enrollmentConfig(origin string) config.Config {
 	cfg := config.Defaults()
 	cfg.RegistryURL = origin
-	cfg.AllowInsecureLoopback = true
 	return cfg
 }
 
@@ -129,9 +128,8 @@ func TestRegisterTransportPolicy(t *testing.T) {
 		!strings.Contains(err.Error(), "connectivity") || strings.Contains(err.Error(), token) {
 		t.Fatal("network failure was not sanitized")
 	}
-	for _, origin := range []string{"http://localhost", "https://user:" + token + "@localhost", "https://localhost/" + token, "https://localhost?token=" + token} {
+	for _, origin := range []string{"ftp://localhost", "https://user:" + token + "@localhost", "https://localhost/" + token, "https://localhost?token=" + token} {
 		cfg := enrollmentConfig(origin)
-		cfg.AllowInsecureLoopback = false
 		if _, err := Register(context.Background(), cfg, "foobar", token); err == nil || strings.Contains(err.Error(), token) {
 			t.Fatal("invalid origin accepted or leaked")
 		}

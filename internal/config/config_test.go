@@ -25,7 +25,7 @@ func TestLoadDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	if cfg.RegistryURL != "https://registry.example" ||
-		cfg.RequestTimeoutSeconds != 30 || cfg.PollFallbackSeconds != 300 || cfg.AllowInsecureLoopback {
+		cfg.RequestTimeoutSeconds != 30 || cfg.PollFallbackSeconds != 300 {
 		t.Fatal("incorrect defaults")
 	}
 	for _, path := range []string{cfg.APIKeyFile, cfg.ConfigDir, cfg.ResultsDir, DefaultPath()} {
@@ -47,7 +47,7 @@ func TestLoadOverrides(t *testing.T) {
 	expected := Config{
 		RegistryURL: "http://127.0.0.1:8080", APIKeyFile: filepath.Join(root, "key"),
 		ConfigDir: root, ResultsDir: filepath.Join(root, "results"),
-		RequestTimeoutSeconds: 1, PollFallbackSeconds: 5, AllowInsecureLoopback: true,
+		RequestTimeoutSeconds: 1, PollFallbackSeconds: 5,
 	}
 	data, err := json.Marshal(expected)
 	if err != nil {
@@ -91,7 +91,7 @@ func TestLoadMixedKnownAndUnknownFields(t *testing.T) {
 	expected := Config{
 		RegistryURL: "https://registry.example", APIKeyFile: filepath.Join(root, "key"),
 		ConfigDir: root, ResultsDir: filepath.Join(root, "results"),
-		RequestTimeoutSeconds: 45, PollFallbackSeconds: 600, AllowInsecureLoopback: true,
+		RequestTimeoutSeconds: 45, PollFallbackSeconds: 600,
 	}
 	data, err := json.Marshal(expected)
 	if err != nil {
@@ -118,7 +118,6 @@ func TestLoadInvalidRecognizedFieldTypes(t *testing.T) {
 		{"resultsDir", []string{`null`, `42`, `true`, `{}`, `[]`}},
 		{"requestTimeoutSeconds", []string{`null`, `"30"`, `true`, `{}`, `[]`, `1.5`, `1e1`}},
 		{"pollFallbackSeconds", []string{`null`, `"300"`, `true`, `{}`, `[]`, `5.5`, `1e2`}},
-		{"allowInsecureLoopback", []string{`null`, `"true"`, `1`, `{}`, `[]`}},
 	} {
 		for _, value := range field.values {
 			t.Run(field.name+"/"+value, func(t *testing.T) {
@@ -145,7 +144,6 @@ func TestLoadCaseInsensitiveFields(t *testing.T) {
 	for _, body := range []string{
 		`{"registryUrl":"https://registry.example","POLLfallbackSeconds":null}`,
 		`{"registryUrl":"https://registry.example","pollFallbackSeconds":300,"POLLFALLBACKSECONDS":600}`,
-		`{"registryUrl":"https://registry.example","allowInsecureLoopback":false,"AllowInsecureLoopback":true}`,
 	} {
 		if _, err := Load(writeConfig(t, []byte(body))); err == nil {
 			t.Fatal("accepted null or duplicate case-insensitive field")
@@ -206,41 +204,66 @@ func TestRegistryURLPolicyAndPrivacy(t *testing.T) {
 	secret := rand.Text()
 	for _, test := range []struct {
 		url   string
-		allow bool
 		valid bool
 	}{
-		{"https://registry.example", false, true},
-		{"http://localhost:8080", true, true},
-		{"http://127.0.0.1:8080", true, true},
-		{"http://[::1]:8080", true, true},
-		{"http://localhost", false, false},
-		{"http://registry.example", true, false},
-		{"http://127.0.0.1.example", true, false},
-		{"http://192.0.2.1", true, false},
-		{"ftp://localhost", true, false},
-		{"https://registry.example:0", false, false},
-		{"https://registry.example:65536", false, false},
-		{"https://registry.example:", false, false},
-		{"https://registry.example/v1", false, false},
-		{"https://registry.example/?machineId=" + secret, false, false},
-		{"https://registry.example/?", false, false},
-		{"https://registry.example/#" + secret, false, false},
-		{"https://user:" + secret + "@registry.example", false, false},
-		{"://" + secret, false, false},
+		{"https://registry.example.com", true},
+		{"http://localhost:8080", true},
+		{"http://localhost", true},
+		{"http://127.0.0.1:8080", true},
+		{"http://[::1]:8080", true},
+		{"http://192.168.1.10:8080", true},
+		{"http://10.0.0.1", true},
+		{"http://172.16.0.1", true},
+		{"http://8.8.8.8:8080", true},
+		{"http://192.0.2.1", true},
+		{"http://[2001:db8::1]:8080", true},
+		{"http://registry.internal", true},
+		{"http://registry.example.com", true},
+		{"http://127.0.0.1.example", true},
+		{"http://registry.internal/", true},
+		{"ftp://localhost", false},
+		{"file://registry.internal", false},
+		{"://" + secret, false},
 	} {
-		data, _ := json.Marshal(map[string]any{"registryUrl": test.url, "allowInsecureLoopback": test.allow})
+		data, _ := json.Marshal(map[string]any{"registryUrl": test.url})
 		_, err := Load(writeConfig(t, data))
 		if (err == nil) != test.valid {
-			t.Error("incorrect URL policy result")
+			t.Errorf("incorrect URL policy result for %s", test.url)
 		}
 		if err != nil && strings.Contains(err.Error(), secret) {
 			t.Error("URL validation leaked a value")
+		}
+	}
+	for _, scheme := range []string{"http", "https"} {
+		for _, address := range []string{
+			"", "registry.example:0", "registry.example:65536", "registry.example:",
+			"registry.example:invalid", "[::1", "registry.example/v1",
+			"registry.example/?machineId=" + secret, "registry.example/?",
+			"registry.example/#" + secret, "registry.example/#",
+			"user:" + secret + "@registry.example", "registry.example/%2f",
+		} {
+			data, _ := json.Marshal(map[string]any{"registryUrl": scheme + "://" + address})
+			if _, err := Load(writeConfig(t, data)); err == nil || strings.Contains(err.Error(), secret) {
+				t.Error("invalid origin accepted or disclosed a value")
+			}
 		}
 	}
 	data, _ := json.Marshal(map[string]any{"registryUrl": "https://registry.example", "requestTimeoutSeconds": secret, secret: secret})
 	_, err := Load(writeConfig(t, data))
 	if err == nil || strings.Contains(err.Error(), secret) {
 		t.Fatal("field-type validation was not private")
+	}
+}
+
+func TestLoadLegacyTransportSettingIgnored(t *testing.T) {
+	expected := Defaults()
+	expected.RegistryURL = "http://registry.internal:8080"
+	for _, value := range []string{`true`, `false`, `null`, `"ignored"`, `42`, `{}`, `[]`} {
+		body := `{"registryUrl":"http://registry.internal:8080","allowInsecureLoopback":` + value + `}`
+		cfg, err := Load(writeConfig(t, []byte(body)))
+		if err != nil || cfg != expected {
+			t.Fatal("obsolete transport setting was not ignored")
+		}
 	}
 }
 

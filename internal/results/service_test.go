@@ -420,6 +420,9 @@ func TestUploadPoliciesLatestOnlyAndPrivacy(t *testing.T) {
 				strings.Contains(logs.String(), "dscm_test.secret") || strings.Contains(logs.String(), "<>&") {
 				t.Fatal("logs leaked credentials, result or response content")
 			}
+			if strings.Contains(logs.String(), "HTTP connections are not encrypted") {
+				t.Fatal("report uploads emitted a registration-only transport warning")
+			}
 			if err := os.Remove(filepath.Join(s.root, "dscregsync", "docker.json.result.json")); err != nil {
 				t.Fatal(err)
 			}

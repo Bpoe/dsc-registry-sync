@@ -17,23 +17,22 @@ import (
 	"golang.org/x/term"
 )
 
-const registrationUsage = "Usage: dscregsyncd register <machine-name> --server <registry-url> [--config path] [--token-stdin] [--allow-insecure-loopback]\nThe token is read without echo from the terminal, or as one line with --token-stdin.\n"
+const registrationUsage = "Usage: dscregsyncd register <machine-name> --server <registry-url> [--config path] [--token-stdin]\nThe token is read without echo from the terminal, or as one line with --token-stdin.\n"
 
 var errRestoreTerminal = errors.New("cannot restore terminal settings after registration token input")
 
 type registerOptions struct {
 	name, server, path string
-	stdin, loopback    bool
+	stdin              bool
 }
 
 func parseRegister(args []string) (registerOptions, error) {
 	options := registerOptions{}
 	flags := flag.NewFlagSet("register", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	flags.StringVar(&options.server, "server", "", "Registry HTTPS origin")
+	flags.StringVar(&options.server, "server", "", "Registry HTTP or HTTPS origin")
 	flags.StringVar(&options.path, "config", config.DefaultPath(), "destination service JSON configuration")
 	flags.BoolVar(&options.stdin, "token-stdin", false, "read one token line from standard input")
-	flags.BoolVar(&options.loopback, "allow-insecure-loopback", false, "explicit HTTP loopback development only")
 	// flag stops at a positional argument. Consume the documented leading name
 	// first, while also accepting flags before the name.
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -71,7 +70,6 @@ func runRegister(ctx context.Context, args []string, input io.Reader, output, di
 	}
 	cfg := config.Defaults()
 	cfg.RegistryURL = options.server
-	cfg.AllowInsecureLoopback = options.loopback
 	cfg.APIKeyFile = filepath.Join(filepath.Dir(options.path), "dscregsyncd.key")
 	if err := cfg.Validate(); err != nil {
 		return fail(err)
@@ -86,6 +84,11 @@ func runRegister(ctx context.Context, args []string, input io.Reader, output, di
 			code = 1
 		}
 	}()
+	if strings.HasPrefix(cfg.RegistryURL, "http://") {
+		if _, err := fmt.Fprint(diagnostics, "WARNING: HTTP connections are not encrypted. Registration tokens\nand machine API keys may be exposed in transit.\n\n"); err != nil {
+			return fail(errors.New("cannot write registration transport warning"))
+		}
+	}
 	token, err := readToken(ctx, input, diagnostics, options.stdin, readPassword)
 	if err != nil {
 		return fail(err)

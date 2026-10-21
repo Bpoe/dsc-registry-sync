@@ -2,6 +2,20 @@
 
 **Authority:** https://github.com/Bpoe/dsc-registry/blob/main/docs/api.md and https://github.com/Bpoe/dsc-reconciler/blob/main/docs/design.md . This is a consumer-oriented reference, not a fork of the server schema. Verify contract changes against the current code during each implementation PR.
 
+## Transport policy
+
+Registration, desired-state polling and report uploads support HTTP and HTTPS
+origins for any valid hostname or IP address, without opt-in flags or settings.
+HTTPS is recommended because it encrypts registration tokens and machine API keys
+in transit. HTTPS uses normal OS trust roots and certificate/hostname verification;
+redirects are refused for both transports. Origins cannot contain credentials,
+non-root paths, queries or fragments; other schemes are rejected.
+
+Upstream documentation discrepancy: Registry's API introduction still says deployed
+endpoints require HTTPS, but `cmd/dscregd/main.go` supports HTTP when TLS is not
+configured. This client's transport choice does not change authentication or API
+payloads; administrators choose the transport appropriate for their deployment.
+
 ## One-shot machine registration
 
 Registry PR 15 (merged as `7d32b508c191e92f778747188eeacf90493b44b6`)
@@ -17,8 +31,11 @@ The client bounds response headers to 64 KiB and uncompressed body to 16 KiB,
 rejects duplicate properties, malformed JSON, null required fields and trailing
 data, and never prints response bodies or credentials.
 
-HTTPS uses normal OS trust/hostname checks; HTTP requires explicit loopback
-development opt-in. Redirects are refused. The request uses the config model's
+HTTP registration prints one warning to stderr before reading the token, explaining
+that registration tokens and machine API keys may be exposed in transit. There is
+no confirmation or blocking; HTTPS registration and normal daemon polling/report
+uploads do not emit that transport warning. Redirects are refused.
+The request uses the config model's
 default 30-second timeout and is never automatically retried. `401` means an
 invalid/expired registration token; `409` means an already registered name.
 Network errors or an invalid success response can leave the remote outcome

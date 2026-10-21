@@ -165,7 +165,7 @@ MSI uninstall stops/removes this service and its event source, not `dscd` or
 Packages are currently unsigned; follow organizational artifact verification and
 signing policy rather than treating checksums as publisher authentication.
 
-## Key rotation, TLS and diagnosis
+## Key rotation, transport and diagnosis
 
 Ctrl+C (and SIGTERM on Linux) cancels the one-shot `register` command, including
 blocked terminal or `--token-stdin` input. It restores terminal settings and
@@ -209,13 +209,30 @@ then revoke the old key. The key is read only at startup; changing it on disk
 without restarting has no effect. Never place either key in a command argument,
 routine logs, issue report or source control.
 
-HTTPS uses OS trust roots and normal hostname/certificate validation. Provision
-the internal CA into the service's OS trust store if necessary; there is no
-certificate-verification bypass. HTTP is only an explicit loopback development
-option. For registration only, explicitly pass `--allow-insecure-loopback` with
-an HTTP loopback origin to persist that development opt-in; HTTPS certificate
-validation is never disabled. Redirects are refused and registration requests
-use the default 30-second timeout. Service runtime flags/behavior are unchanged.
+HTTP and HTTPS are fully supported for registration, synchronization and report
+uploads, using any valid hostname or IP address. No opt-in flag or setting is
+required. For example, a manual config can use
+`{"registryUrl":"http://registry.internal:8080"}`, or register directly:
+
+```text
+dscregsyncd register foobar --server http://registry.internal:8080
+
+WARNING: HTTP connections are not encrypted. Registration tokens
+and machine API keys may be exposed in transit.
+
+Registration token:
+```
+
+The HTTP warning is printed once to stderr before reading the token (also with
+`--token-stdin`, which does not prompt). It requires no confirmation and does not
+block registration. HTTPS registration prints no transport warning; normal daemon
+polling and report uploads never repeat it. Tokens and keys are never printed.
+
+HTTPS is recommended because it protects credentials in transit. It uses OS trust
+roots and normal hostname/certificate validation. Provision the internal CA into
+the service's OS trust store if necessary; there is no certificate-verification
+bypass. Redirects are refused for both transports, and registration requests use
+the default 30-second timeout.
 
 Use status codes, retry delays and lifecycle events to diagnose failures.
 401/403 indicate credential/role problems; 429/5xx back off without deleting

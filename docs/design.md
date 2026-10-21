@@ -142,8 +142,11 @@ derivation, bounds and permanent/retryable status policy.
 operation, not a daemon/service mode. It reads a token without terminal echo
 or reads one line with `--token-stdin`. Both reads honor cancellation and restore
 any changed terminal modes before provisioning cleanup. No credential is
-accepted as an argument. Existing URL policy applies; HTTP loopback requires
-explicit `--allow-insecure-loopback`. The Registry registration API uses Bearer
+accepted as an argument. HTTP and HTTPS origins are supported without an opt-in
+flag or setting. For HTTP, print one unencrypted-transport warning to stderr
+before reading the token, without confirmation or blocking; HTTPS registration
+and normal daemon polling/report uploads emit no transport warning.
+The Registry registration API uses Bearer
 authentication; subsequent daemon calls continue to use the machine API key.
 
 Before HTTP, registration verifies privilege and all credential-path ancestors,
@@ -186,11 +189,9 @@ inside unknown values or case-variant aliases of recognized settings.
 This applies only to local daemon settings, not Registry API payloads or DSC
 configuration documents.
 
-The API key is stored **outside** this JSON file and never logged. Linux: root-owned restrictive key file (0600) and protected parent directory. Windows: ACL-restricted to service identity/SYSTEM/Administrators; a stronger DPAPI-backed provider can be revisited if needed, but is not a prerequisite for v1. HTTPS is required except explicitly configured loopback development. Use OS trust roots and normal certificate validation; no `insecureSkipVerify` option. Fail clearly on invalid URL/path/configuration, malicious names, permission failures or inability to establish exclusive ownership of the managed tree.
+The API key is stored **outside** this JSON file and never logged. Linux: root-owned restrictive key file (0600) and protected parent directory. Windows: ACL-restricted to service identity/SYSTEM/Administrators; a stronger DPAPI-backed provider can be revisited if needed, but is not a prerequisite for v1. HTTPS is recommended to protect credentials in transit, but HTTP is fully supported for any valid hostname or IP address without special configuration. Use OS trust roots and normal certificate validation for HTTPS; no `insecureSkipVerify` option. Redirects are refused for both transports. Fail clearly on invalid URL/path/configuration, malicious names, permission failures or inability to establish exclusive ownership of the managed tree.
 
-The loopback development opt-in is `allowInsecureLoopback` (default `false`).
-It permits HTTP only for `localhost` or literal loopback addresses. The foreground
-publisher assumes one daemon owns the managed input tree; it does not implement
+The foreground publisher assumes one daemon owns the managed input tree; it does not implement
 multi-process leader election or lock files. Private new-file permissions are
 implemented; installation/root ownership and deployment hardening are covered by
 the stage 4 packages and provisioning instructions. Existing ancestor safety
