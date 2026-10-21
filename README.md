@@ -11,7 +11,7 @@ remain required; this is **not yet a v1 production-readiness declaration**.
 ## Responsibilities
 
 - Register a new machine with a time-limited Registry registration token and securely provision the local service configuration and machine API key.
-- Authenticate to [`dscregd`](https://github.com/Bpoe/dsc-registry) with the **machine API key** over HTTPS.
+- Authenticate to [`dscregd`](https://github.com/Bpoe/dsc-registry) with the **machine API key** over HTTP or HTTPS.
 - Poll `GET /v1/agent/configurations` conditionally with the machine ETag and respect `Cache-Control`.
 - Publish `.json` DSC templates and optional `.parameters.json` sidecars into the dedicated `config.d/dscregsync/` directory.
 - Observe `dscd`'s atomic result-file publications using a filesystem watcher and upload the latest available result through the Registry machine API.
@@ -23,7 +23,7 @@ remain required; this is **not yet a v1 production-readiness declaration**.
 
 ```text
 DSC Registry (`dscregd`)
-       ^ HTTPS machine API
+       ^ HTTP(S) machine API
        |
   `dscregsyncd`
        | file publication / result observation
@@ -123,13 +123,21 @@ protected credential provisioning, upgrade/uninstall behavior and acceptance
 checks. Neither package family installs DSC or `dscd`, automatically registers a machine, or
 ships a key or active configuration file.
 
-`registryUrl` is required and must be an HTTPS origin, with no credentials,
+`registryUrl` is required and must be an HTTP or HTTPS origin, with no credentials,
 non-root path, query or fragment. Other fields default as shown in the
 [example](examples/dscregsyncd.json), with platform-specific paths. All paths
-must be absolute; input/result directories may be absent. For explicit local
-development only, set `"allowInsecureLoopback": true` with an HTTP URL whose
-host is `localhost` or a loopback IP literal. TLS verification stays enabled
-for HTTPS, and redirects are never followed.
+must be absolute; input/result directories may be absent. HTTP is fully supported
+for any valid hostname or IP address, with no opt-in flag or setting. For example,
+`{"registryUrl":"http://registry.internal:8080"}` is a valid minimal configuration,
+and `dscregsyncd register foobar --server http://registry.internal:8080` registers
+over HTTP without extra flags.
+
+**HTTPS is recommended** because it protects registration tokens and machine API
+keys in transit. HTTP is unencrypted; registration prints one warning to stderr
+before reading the token, without confirmation or blocking. HTTPS registration
+prints no transport warning, and normal daemon polling/report uploads do not
+repeat it. TLS certificate/hostname verification stays enabled for HTTPS, and
+redirects are never followed for either transport.
 
 `requestTimeoutSeconds` is 1-300 (default 30); `pollFallbackSeconds` is 5-3600
 (default 300). Unknown properties in the local `dscregsyncd.json` settings file

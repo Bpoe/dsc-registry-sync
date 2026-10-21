@@ -182,7 +182,7 @@ func TestRealServiceRoundtrip(t *testing.T) {
 	defer gateway.Close()
 	defer release()
 	cfg := config.Defaults()
-	cfg.RegistryURL, cfg.AllowInsecureLoopback = gateway.URL, true
+	cfg.RegistryURL = gateway.URL
 	cfg.ConfigDir, cfg.ResultsDir = filepath.Join(root, "config.d"), filepath.Join(root, "results.d")
 	cfg.APIKeyFile = filepath.Join(root, "machine.key")
 	cfg.RequestTimeoutSeconds = 120

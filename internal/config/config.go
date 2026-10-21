@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -26,7 +25,6 @@ type Config struct {
 	ResultsDir            string `json:"resultsDir"`
 	RequestTimeoutSeconds int    `json:"requestTimeoutSeconds"`
 	PollFallbackSeconds   int    `json:"pollFallbackSeconds"`
-	AllowInsecureLoopback bool   `json:"allowInsecureLoopback"`
 }
 
 func Defaults() Config {
@@ -99,7 +97,7 @@ func (c *Config) Validate() error {
 	if err != nil || u.Hostname() == "" || u.User != nil || u.RawQuery != "" ||
 		u.ForceQuery || u.Fragment != "" || strings.Contains(c.RegistryURL, "#") ||
 		u.Opaque != "" || (u.Path != "" && u.Path != "/") || u.RawPath != "" {
-		return errors.New("registryUrl must be an HTTPS origin without credentials, path, query or fragment")
+		return errors.New("registryUrl must be an HTTP or HTTPS origin without credentials, path, query or fragment")
 	}
 	if port := u.Port(); port != "" {
 		n, err := strconv.Atoi(port)
@@ -110,10 +108,8 @@ func (c *Config) Validate() error {
 	if strings.HasSuffix(u.Host, ":") {
 		return errors.New("registryUrl contains an empty port")
 	}
-	ip := net.ParseIP(u.Hostname())
-	loopback := strings.EqualFold(u.Hostname(), "localhost") || ip != nil && ip.IsLoopback()
-	if u.Scheme != "https" && !(u.Scheme == "http" && c.AllowInsecureLoopback && loopback) {
-		return errors.New("registryUrl requires HTTPS; HTTP requires allowInsecureLoopback and a loopback host")
+	if u.Scheme != "https" && u.Scheme != "http" {
+		return errors.New("registryUrl requires HTTP or HTTPS")
 	}
 	u.Path = ""
 	c.RegistryURL = u.String()

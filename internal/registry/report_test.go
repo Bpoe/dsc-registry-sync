@@ -136,10 +136,12 @@ func TestInvalidReportBoundaries(t *testing.T) {
 }
 
 func TestUploadResponsePolicyAndPrivacy(t *testing.T) {
-	for _, code := range []int{200, 201, 204, 302, 400, 401, 403, 404, 408, 409, 413, 415, 429, 500, 503} {
+	for _, code := range []int{200, 201, 204, 301, 302, 303, 307, 308, 400, 401, 403, 404, 408, 409, 413, 415, 429, 500, 503} {
 		t.Run(http.StatusText(code), func(t *testing.T) {
 			key, secret := machineKey(), "private-result-and-error"
+			requests := 0
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests++
 				w.Header().Set("Retry-After", "120")
 				w.Header().Set("Location", "/"+secret)
 				w.WriteHeader(code)
@@ -153,7 +155,7 @@ func TestUploadResponsePolicyAndPrivacy(t *testing.T) {
 			success := code == 200 || code == 201
 			permanent := !success && code < 500 && code != 401 && code != 403 && code != 408 && code != 429
 			if (err == nil) != success || response.Permanent != permanent || response.StatusCode != code ||
-				response.Header.Get("Retry-After") != "120" {
+				response.Header.Get("Retry-After") != "120" || requests != 1 {
 				t.Fatalf("incorrect policy: %+v, %v", response, err)
 			}
 			if err != nil && (strings.Contains(err.Error(), secret) || strings.Contains(err.Error(), key)) {

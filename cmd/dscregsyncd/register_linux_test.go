@@ -56,7 +56,7 @@ func TestRegistrationSignalCleanup(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 				defer cancel()
 				cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestRegistrationCommandProcess$", "--",
-					"register", "foobar", "--server", server.URL, "--config", path, "--allow-insecure-loopback")
+					"register", "foobar", "--server", server.URL, "--config", path)
 				cmd.Env = append(os.Environ(), "DSCREGSYNC_TEST_REGISTER_PROCESS=1")
 				var output bytes.Buffer
 				cmd.Stdout, cmd.Stderr = &output, &output

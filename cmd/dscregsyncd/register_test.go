@@ -24,7 +24,9 @@ func TestRegisterCLIParsing(t *testing.T) {
 		{"foobar", "--server", "https://localhost"},
 		{"foobar", "--server=https://localhost", "--config", path, "--token-stdin"},
 		{"--server", "https://localhost", "foobar"},
-		{"foobar", "--allow-insecure-loopback", "--server", "http://localhost"},
+		{"foobar", "--server", "http://localhost"},
+		{"foobar", "--server", "http://192.168.1.10:8080"},
+		{"foobar", "--server", "http://registry.internal"},
 	} {
 		options, err := parseRegister(args)
 		if err != nil || options.name != "foobar" || options.server == "" || options.path == "" {
@@ -38,6 +40,8 @@ func TestRegisterCLIParsing(t *testing.T) {
 		{"foobar", "--server", "https://localhost", secret},
 		{"foobar", "--server", "https://localhost", "--token", secret},
 		{"foobar", "--server", "https://localhost", "--token=" + secret},
+		{"foobar", "--server", "http://localhost", "--allow-insecure-loopback"},
+		{"foobar", "--server", "http://localhost", "--allow-insecure-loopback=false"},
 	} {
 		var output bytes.Buffer
 		if code := runRegister(context.Background(), args, strings.NewReader(""), &output, &output, nil); code != 2 ||
@@ -48,7 +52,8 @@ func TestRegisterCLIParsing(t *testing.T) {
 	for _, args := range [][]string{{"--help"}, {"foobar", "--help"}} {
 		var output bytes.Buffer
 		if runRegister(context.Background(), args, nil, &output, &output, nil) != 0 ||
-			!strings.Contains(output.String(), "--token-stdin") {
+			!strings.Contains(output.String(), "--token-stdin") ||
+			strings.Contains(output.String(), "--allow-insecure-loopback") {
 			t.Fatal("registration help missing")
 		}
 	}
@@ -169,7 +174,7 @@ func TestRegistrationEndToEndAndPreflight(t *testing.T) {
 			}))
 			defer server.Close()
 			var output, diagnostics bytes.Buffer
-			args := []string{"foobar", "--server", server.URL, "--config", path, "--allow-insecure-loopback", "--token-stdin"}
+			args := []string{"foobar", "--server", server.URL, "--config", path, "--token-stdin"}
 			// Preseed a valid installation using the same protected provisioning
 			// path, then ensure either existing destination blocks before HTTP.
 			if strings.HasPrefix(scenario, "existing-") {
@@ -194,7 +199,8 @@ func TestRegistrationEndToEndAndPreflight(t *testing.T) {
 			}
 			keyPath := filepath.Join(filepath.Dir(path), "dscregsyncd.key")
 			if scenario == "success" {
-				if code != 0 || requests != 1 || diagnostics.Len() != 0 {
+				if code != 0 || requests != 1 ||
+					diagnostics.String() != "WARNING: HTTP connections are not encrypted. Registration tokens\nand machine API keys may be exposed in transit.\n\n" {
 					t.Fatal("registration did not complete")
 				}
 				if !strings.Contains(output.String(), "Machine registered successfully.\nName: foobar\nID: "+id) ||
@@ -237,13 +243,87 @@ func TestRegistrationEndToEndAndPreflight(t *testing.T) {
 	}
 }
 
+func TestRegistrationTransportWarning(t *testing.T) {
+	requireRegistrationPrivilege(t)
+	for _, scheme := range []string{"http", "https"} {
+		t.Run(scheme, func(t *testing.T) {
+			for _, stdin := range []bool{false, true} {
+				t.Run(map[bool]string{false: "terminal", true: "stdin"}[stdin], func(t *testing.T) {
+					path := filepath.Join(t.TempDir(), "private", "service.json")
+					token, key := "dscr_"+rand.Text(), "dscm_"+rand.Text()+"."+rand.Text()
+					requests := 0
+					handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						requests++
+						if r.Method != "POST" || r.URL.Path != "/v1/agent/register" ||
+							r.Header.Get("Authorization") != "Bearer "+token {
+							t.Error("incorrect registration request")
+						}
+						w.Header().Set("Content-Type", "application/json")
+						w.WriteHeader(201)
+						json.NewEncoder(w).Encode(map[string]string{
+							"id": "550e8400-e29b-41d4-a716-446655440000", "name": "foobar", "apiKey": key,
+						})
+					})
+					server := httptest.NewUnstartedServer(handler)
+					if scheme == "https" {
+						server.StartTLS()
+						original := http.DefaultTransport
+						http.DefaultTransport = server.Client().Transport
+						defer func() { http.DefaultTransport = original }()
+					} else {
+						server.Start()
+					}
+					defer server.Close()
+					var output, diagnostics bytes.Buffer
+					args := []string{"foobar", "--server", server.URL, "--config", path}
+					warning := ""
+					if scheme == "http" {
+						warning = "WARNING: HTTP connections are not encrypted. Registration tokens\nand machine API keys may be exposed in transit.\n\n"
+					}
+					wantDiagnostics := warning
+					if stdin {
+						args = append(args, "--token-stdin")
+					} else {
+						wantDiagnostics += "Registration token: \n"
+					}
+					readPassword := func(context.Context, io.Reader) ([]byte, error) {
+						if diagnostics.String() != warning+"Registration token: " {
+							t.Error("transport warning was not emitted before requesting the token")
+						}
+						return []byte(token), nil
+					}
+					code := runRegister(context.Background(), args, strings.NewReader(token+"\n"), &output, &diagnostics, readPassword)
+					if code != 0 || requests != 1 || diagnostics.String() != wantDiagnostics {
+						t.Fatal("registration did not succeed with exactly the expected transport warning and prompt")
+					}
+					if strings.Contains(output.String()+diagnostics.String(), token) ||
+						strings.Contains(output.String()+diagnostics.String(), key) {
+						t.Fatal("registration transport warning or output leaked credentials")
+					}
+					cfg, err := config.Load(path)
+					if err != nil || cfg.RegistryURL != server.URL {
+						t.Fatal("registration did not persist the selected transport")
+					}
+					data, err := os.ReadFile(path)
+					if err != nil || bytes.Contains(data, []byte("allowInsecureLoopback")) {
+						t.Fatal("generated configuration includes the obsolete transport setting")
+					}
+					if got, err := config.ReadAPIKey(cfg.APIKeyFile); err != nil || got != key {
+						t.Fatal("registration did not provision the machine key")
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestRegistrationRejectsOriginBeforeProvisioning(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "private", "config.json")
 	var output bytes.Buffer
-	code := runRegister(context.Background(), []string{"foobar", "--server", "http://localhost", "--config", path},
+	code := runRegister(context.Background(), []string{"foobar", "--server", "ftp://localhost", "--config", path},
 		strings.NewReader(""), &output, &output, nil)
 	if code == 0 || !strings.Contains(output.String(), "HTTPS") {
-		t.Fatal("insecure origin accepted without explicit development opt-in")
+		t.Fatal("unsupported origin accepted")
 	}
 	if _, err := os.Lstat(filepath.Dir(path)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("invalid server created local state")
