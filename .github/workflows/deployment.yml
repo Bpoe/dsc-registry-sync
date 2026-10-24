@@ -82,11 +82,20 @@ jobs:
         run: go test -race ./cmd/dscregsyncd -run '^TestRealServiceRoundtrip$' -count=1 -timeout 5m -v
 
   packages:
+    name: Packages (${{ matrix.os }}, ${{ matrix.arch }})
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            arch: amd64
+            rpm_arch: x86_64
+          - os: ubuntu-24.04-arm
+            arch: arm64
+            rpm_arch: aarch64
+          - os: windows-latest
+            arch: amd64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -107,6 +116,9 @@ jobs:
       - name: Linux packages
         if: runner.os == 'Linux'
         shell: bash
+        env:
+          GOARCH: ${{ matrix.arch }}
+          RPM_ARCH: ${{ matrix.rpm_arch }}
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y rpm
@@ -115,15 +127,22 @@ jobs:
           VERSION=v0.0.0 bash packaging/linux/build.sh "$RUNNER_TEMP/baseline"
           bash packaging/linux/build.sh dist
           version="${VERSION#v}"
-          args=("$RUNNER_TEMP/baseline/dscregsyncd_0.0.0_amd64.deb")
-          if [[ "$version" != 0.0.0 ]]; then args+=("$PWD/dist/dscregsyncd_${version}_amd64.deb"); fi
+          for directory in "$RUNNER_TEMP/baseline" "$PWD/dist"; do
+            debs=("$directory"/*.deb)
+            rpms=("$directory"/*.rpm)
+            [[ "${#debs[@]}" == 1 && "${#rpms[@]}" == 1 ]]
+            [[ "$(dpkg-deb --field "${debs[0]}" Architecture)" == "$GOARCH" ]]
+            [[ "$(rpm -qp --queryformat '%{ARCH}' "${rpms[0]}")" == "$RPM_ARCH" ]]
+          done
+          args=("$RUNNER_TEMP/baseline/dscregsyncd_0.0.0_${GOARCH}.deb")
+          if [[ "$version" != 0.0.0 ]]; then args+=("$PWD/dist/dscregsyncd_${version}_${GOARCH}.deb"); fi
           sudo env DSCREGSYNC_DISPOSABLE=1 bash packaging/linux/test-install.sh "${args[@]}"
-          docker run --rm -e DSCREGSYNC_DISPOSABLE=1 -e VERSION \
+          docker run --rm -e DSCREGSYNC_DISPOSABLE=1 -e VERSION -e RPM_ARCH \
             -v "$PWD/dist:/packages:ro" -v "$RUNNER_TEMP/baseline:/baseline:ro" \
             -v "$PWD/packaging/linux:/tests:ro" fedora:43 bash -euc '
               dnf install -y systemd
-              args=(/baseline/dscregsyncd-0.0.0-1.x86_64.rpm)
-              if [[ "${VERSION#v}" != 0.0.0 ]]; then args+=("/packages/dscregsyncd-${VERSION#v}-1.x86_64.rpm"); fi
+              args=("/baseline/dscregsyncd-0.0.0-1.${RPM_ARCH}.rpm")
+              if [[ "${VERSION#v}" != 0.0.0 ]]; then args+=("/packages/dscregsyncd-${VERSION#v}-1.${RPM_ARCH}.rpm"); fi
               bash /tests/test-install.sh "${args[@]}"
             '
       - name: Checksums
@@ -135,7 +154,7 @@ jobs:
           [IO.File]::WriteAllLines("$PWD/dist/SHA256SUMS", $lines, [Text.UTF8Encoding]::new($false))
       - uses: actions/upload-artifact@v4
         with:
-          name: packages-${{ runner.os }}
+          name: packages-${{ runner.os }}-${{ matrix.arch }}
           path: dist/*
           if-no-files-found: error
 
@@ -157,5 +176,5 @@ jobs:
         shell: bash
         run: |
           cat artifacts/packages-*/SHA256SUMS > artifacts/SHA256SUMS
-          gh release create "$VERSION" artifacts/packages-Linux/*.deb artifacts/packages-Linux/*.rpm \
-            artifacts/packages-Windows/*.msi artifacts/SHA256SUMS --verify-tag --generate-notes --draft
+          gh release create "$VERSION" artifacts/packages-Linux-*/*.deb artifacts/packages-Linux-*/*.rpm \
+            artifacts/packages-Windows-*/*.msi artifacts/SHA256SUMS --verify-tag --generate-notes --draft
