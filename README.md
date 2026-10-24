@@ -218,8 +218,11 @@ on Linux and Windows, plus a Windows cross-build from Linux. Deployment CI also
 builds pinned real Registry/reconciler peers and runs native roundtrips with DSC
 3.3.0, then exercises package install/repair/upgrade/uninstall on disposable
 hosts. Tagged releases require all these jobs before publishing packages.
-RPM lifecycle checks run in Fedora without systemd; Debian checks exercise real
-systemd. A green cross-build alone is never native runtime evidence.
+Linux DEB/RPM packages target amd64 and arm64; Windows MSI remains x64.
+The package matrix runs lifecycle checks on native amd64 and ARM64 Linux
+runners. RPM lifecycle checks run in Fedora without systemd; Debian checks
+exercise real systemd. Both architectures are included in release packages and
+checksums. A green cross-build alone is never native runtime evidence.
 
 Publisher tests include separate-process OS protection, abrupt process exits
 at publication boundaries, restart/retry, incomplete collections, private

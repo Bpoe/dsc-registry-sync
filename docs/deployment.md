@@ -2,7 +2,7 @@
 
 ## Release scope and prerequisites
 
-Packages target Linux amd64 and Windows x64. Install a compatible independent
+Packages target Linux amd64/arm64 and Windows x64. Install a compatible independent
 `dscd` and DSC separately. Both daemons must use the same `config.d` and
 `results.d` roots and compatible identities: packaged defaults are root on
 Linux and LocalSystem on Windows. No service dependency forces `dscd` to start
@@ -29,6 +29,8 @@ redirected through untrusted symlinks/reparse points.
 
 Install the `.deb` with `apt install ./dscregsyncd_VERSION_amd64.deb`, or the
 `.rpm` with `dnf install ./dscregsyncd-VERSION-1.x86_64.rpm`.
+For ARM64, use `dscregsyncd_VERSION_arm64.deb` or
+`dscregsyncd-VERSION-1.aarch64.rpm` instead.
 Packages enable `dscregsyncd.service`. On an unprovisioned host systemd skips
 startup because `/etc/dsc/dscregsyncd.json` is absent.
 
@@ -267,7 +269,12 @@ From the repository root, with Go 1.27:
 ```sh
 # nFPM v2.47.0 must be on PATH.
 VERSION=v1.0.0 bash packaging/linux/build.sh dist
+# ARM64 packages (DEB arm64, RPM aarch64):
+GOARCH=arm64 VERSION=v1.0.0 bash packaging/linux/build.sh dist
 ```
+
+The Linux builder defaults to amd64 and accepts only `GOARCH=amd64` or
+`GOARCH=arm64`. Cross-building packages does not validate native installation.
 
 On Windows with PowerShell 7 and the .NET SDK, the project restores WiX 7.0.0:
 
@@ -292,6 +299,12 @@ events. Independent Linux scenarios reset systemd's start counter only after a
 verified successful stop with no automatic restarts; production rate limiting
 is unchanged. Linux CI checks DEB under real systemd and RPM under Fedora without
 systemd; the RPM test is not evidence of native systemd service operation.
+The package matrix runs these same lifecycle checks natively for Linux amd64
+on `ubuntu-latest` and arm64 on `ubuntu-24.04-arm`, using each runner's native
+Fedora container architecture. Release artifacts include both DEB/RPM
+architectures and the Windows x64 MSI, with a combined SHA-256 manifest.
+ARM64 lifecycle success requires a green run of the expanded package matrix;
+the earlier CI evidence below predates ARM64 coverage.
 
 The opt-in Go test uses real binaries, a disposable SQLite Registry and real DSC:
 

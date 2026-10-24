@@ -1,5 +1,5 @@
 name: dscregsyncd
-arch: amd64
+arch: ${GOARCH}
 platform: linux
 version: ${VERSION}
 maintainer: Bpoe <Bpoe@users.noreply.github.com>
