@@ -35,6 +35,7 @@ contents:
 overrides:
   deb:
     depends:
+      - dscd
       - init-system-helpers (>= 1.54)
     scripts:
       postinstall: packaging/linux/deb/postinst
@@ -42,6 +43,7 @@ overrides:
       postremove: packaging/linux/deb/postrm
   rpm:
     depends:
+      - dscd
       - systemd
     scripts:
       postinstall: packaging/linux/rpm/postinstall

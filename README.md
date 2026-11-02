@@ -120,8 +120,9 @@ shutdown allow 30 seconds for cleanup before exiting nonzero.
 
 See [deployment.md](docs/deployment.md) for package builds, installation,
 protected credential provisioning, upgrade/uninstall behavior and acceptance
-checks. Neither package family installs DSC or `dscd`, automatically registers a machine, or
-ships a key or active configuration file.
+checks. Linux DEB/RPM packages require the `dscd` (DSC Reconciler) package;
+Windows MSI requires DSC and `dscd` to be installed separately. Packages do not
+automatically register a machine or ship a key or active configuration file.
 
 `registryUrl` is required and must be an HTTP or HTTPS origin, with no credentials,
 non-root path, query or fragment. Other fields default as shown in the

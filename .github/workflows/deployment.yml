@@ -133,14 +133,24 @@ jobs:
             [[ "${#debs[@]}" == 1 && "${#rpms[@]}" == 1 ]]
             [[ "$(dpkg-deb --field "${debs[0]}" Architecture)" == "$GOARCH" ]]
             [[ "$(rpm -qp --queryformat '%{ARCH}' "${rpms[0]}")" == "$RPM_ARCH" ]]
+            dpkg-deb --field "${debs[0]}" Depends | tr ',' '\n' | sed 's/^ *//;s/ *$//' | grep -Fx dscd
+            rpm -qp --requires "${rpms[0]}" | grep -Fx dscd
           done
+          # These lifecycle checks exercise only dscregsyncd; real dscd runs in roundtrip.
+          mkdir -p "$RUNNER_TEMP/dependencies"
+          for format in deb rpm; do
+            nfpm package --config packaging/linux/testdata/dscd.yaml --packager "$format" --target "$RUNNER_TEMP/dependencies/"
+          done
+          sudo dpkg --install "$RUNNER_TEMP/dependencies/dscd_0.0.0_${GOARCH}.deb"
           args=("$RUNNER_TEMP/baseline/dscregsyncd_0.0.0_${GOARCH}.deb")
           if [[ "$version" != 0.0.0 ]]; then args+=("$PWD/dist/dscregsyncd_${version}_${GOARCH}.deb"); fi
           sudo env DSCREGSYNC_DISPOSABLE=1 bash packaging/linux/test-install.sh "${args[@]}"
           docker run --rm -e DSCREGSYNC_DISPOSABLE=1 -e VERSION -e RPM_ARCH \
             -v "$PWD/dist:/packages:ro" -v "$RUNNER_TEMP/baseline:/baseline:ro" \
+            -v "$RUNNER_TEMP/dependencies:/dependencies:ro" \
             -v "$PWD/packaging/linux:/tests:ro" fedora:43 bash -euc '
               dnf install -y systemd
+              rpm -i "/dependencies/dscd-0.0.0-1.${RPM_ARCH}.rpm"
               args=("/baseline/dscregsyncd-0.0.0-1.${RPM_ARCH}.rpm")
               if [[ "${VERSION#v}" != 0.0.0 ]]; then args+=("/packages/dscregsyncd-${VERSION#v}-1.${RPM_ARCH}.rpm"); fi
               bash /tests/test-install.sh "${args[@]}"
