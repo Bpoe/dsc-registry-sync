@@ -2,8 +2,10 @@
 
 ## Release scope and prerequisites
 
-Packages target Linux amd64/arm64 and Windows x64. Install a compatible independent
-`dscd` and DSC separately. Both daemons must use the same `config.d` and
+Packages target Linux amd64/arm64 and Windows x64. Linux DEB/RPM packages declare
+a required dependency on `dscd` (DSC Reconciler) version 0.0.7 or newer.
+On Windows, install a compatible
+independent `dscd` and DSC separately. Both daemons must use the same `config.d` and
 `results.d` roots and compatible identities: packaged defaults are root on
 Linux and LocalSystem on Windows. No service dependency forces `dscd` to start
 first: synchronization, offline reconciliation and watcher recovery are
@@ -31,6 +33,10 @@ Install the `.deb` with `apt install ./dscregsyncd_VERSION_amd64.deb`, or the
 `.rpm` with `dnf install ./dscregsyncd-VERSION-1.x86_64.rpm`.
 For ARM64, use `dscregsyncd_VERSION_arm64.deb` or
 `dscregsyncd-VERSION-1.aarch64.rpm` instead.
+Ensure `dscd` and its dependencies are available from your configured package
+repositories, or install compatible local packages first. `apt` and `dnf`
+resolve the required `dscd` dependency; direct `dpkg`/`rpm` installation requires
+it to be installed already.
 Packages enable `dscregsyncd.service`. On an unprovisioned host systemd skips
 startup because `/etc/dsc/dscregsyncd.json` is absent.
 
@@ -299,6 +305,10 @@ events. Independent Linux scenarios reset systemd's start counter only after a
 verified successful stop with no automatic restarts; production rate limiting
 is unchanged. Linux CI checks DEB under real systemd and RPM under Fedora without
 systemd; the RPM test is not evidence of native systemd service operation.
+Package CI checks the generated DEB/RPM dependency metadata and installs an
+empty test-only `dscd` package for these isolated synchronizer lifecycle checks.
+The fixture contains no reconciler binary or service; real reconciler behavior
+is covered by the separate cross-service roundtrip job.
 The package matrix runs these same lifecycle checks natively for Linux amd64
 on `ubuntu-latest` and arm64 on `ubuntu-24.04-arm`, using each runner's native
 Fedora container architecture. Release artifacts include both DEB/RPM
