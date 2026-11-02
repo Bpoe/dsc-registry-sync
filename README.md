@@ -120,7 +120,7 @@ shutdown allow 30 seconds for cleanup before exiting nonzero.
 
 See [deployment.md](docs/deployment.md) for package builds, installation,
 protected credential provisioning, upgrade/uninstall behavior and acceptance
-checks. Linux DEB/RPM packages require the `dscd` (DSC Reconciler) package;
+checks. Linux DEB/RPM packages require the `dscd` (DSC Reconciler) package version 0.0.7 or newer;
 Windows MSI requires DSC and `dscd` to be installed separately. Packages do not
 automatically register a machine or ship a key or active configuration file.
 

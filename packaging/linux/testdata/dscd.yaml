@@ -2,7 +2,7 @@
 name: dscd
 arch: ${GOARCH}
 platform: linux
-version: 0.0.0
+version: 0.0.7
 maintainer: Bpoe <Bpoe@users.noreply.github.com>
 description: Empty DSC Reconciler dependency fixture for dscregsyncd package tests
 license: MIT

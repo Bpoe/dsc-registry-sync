@@ -3,7 +3,8 @@
 ## Release scope and prerequisites
 
 Packages target Linux amd64/arm64 and Windows x64. Linux DEB/RPM packages declare
-a required dependency on `dscd` (DSC Reconciler). On Windows, install a compatible
+a required dependency on `dscd` (DSC Reconciler) version 0.0.7 or newer.
+On Windows, install a compatible
 independent `dscd` and DSC separately. Both daemons must use the same `config.d` and
 `results.d` roots and compatible identities: packaged defaults are root on
 Linux and LocalSystem on Windows. No service dependency forces `dscd` to start
